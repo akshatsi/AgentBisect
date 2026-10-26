@@ -1,0 +1,8 @@
+id: t02
+title: Rename remove_stock to deduct_stock
+repo: tasks/fixture_repo
+max_steps: 20
+prompt: |
+  The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `python -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+  Rename `Inventory.remove_stock` to `Inventory.deduct_stock`. Update every caller and every test that uses the old name. Do not leave an alias behind: after the change, the name `remove_stock` must not appear anywhere in the project. Behaviour must not change, and the full test suite must pass.

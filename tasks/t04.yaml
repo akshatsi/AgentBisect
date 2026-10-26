@@ -1,0 +1,8 @@
+id: t04
+title: Add a 20-unit bulk tier
+repo: tasks/fixture_repo
+max_steps: 25
+prompt: |
+  The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `python -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+  Add a bulk discount tier to pricing: lines of 20 or more units get 15 percent off (the existing tiers stay as they are). Then change `report.order_summary` so a line that received a bulk discount ends with ` (bulk N% off)`, where N is the percent. Lines without a bulk discount must print exactly as before. Add tests for both changes. All existing tests must keep passing.

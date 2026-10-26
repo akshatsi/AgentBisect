@@ -1,0 +1,8 @@
+id: t09
+title: Minimum spend for FIVEOFF
+repo: tasks/fixture_repo
+max_steps: 25
+prompt: |
+  The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `python -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+  The FIVEOFF coupon should only apply to orders whose subtotal is at least $25.00 (2500 cents). Below that, `pricing.coupon_discount` must raise `InvalidCouponError`, and `OrderBook.place_order` must fail without changing stock or creating an order. SAVE10 has no minimum. Keep the rule in data (next to `COUPONS`) rather than hard-coding it in a function. Add tests. If you change the shape of `COUPONS`, update any test that relies on it. All existing tests must keep passing.

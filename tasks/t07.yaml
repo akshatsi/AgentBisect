@@ -1,0 +1,8 @@
+id: t07
+title: Backorders for partial fulfilment
+repo: tasks/fixture_repo
+max_steps: 30
+prompt: |
+  The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `python -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+  Add backorder support. `OrderBook.place_order(items, coupon=None, allow_partial=False)`: with `allow_partial=True`, each line is filled with whatever stock exists (up to the requested quantity), lines with zero stock are dropped, and the shortfall is recorded in a new `Order.backordered` field, a dict of sku to missing quantity (empty by default). If nothing at all can be filled, raise `OutOfStockError`. Totals are computed on the filled quantities only. With `allow_partial=False` the behaviour must stay exactly as today. `report.order_summary` must add a line `  Backordered: SKU xN` per backordered SKU, at the end, only when there are any. Cancelling an order restocks only what was filled. Add tests. All existing tests must keep passing.

@@ -1,0 +1,8 @@
+id: t03
+title: Case-insensitive catalog search
+repo: tasks/fixture_repo
+max_steps: 20
+prompt: |
+  The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `python -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+  `Catalog.search` is case sensitive, so searching for "widget" finds nothing although the catalog has a product named "Widget". Make the search case-insensitive. Results stay ordered by SKU. Product names must be stored and displayed exactly as they were added. Add tests, and keep all existing tests passing.
