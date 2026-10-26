@@ -52,3 +52,25 @@ def test_task_run_records_this_python(tmp_path):
     task = TaskSpec(id="t", title="t", prompt="p", repo=repo)
     run_dir = prepare_opencode_run(task, tmp_path / "runs", "flash", "r1")
     assert Trace.load(run_dir).meta.python == __import__("pathlib").Path(sys.executable)
+
+
+def test_repo_run_plants_sabotage_and_checks_find_text(tmp_path):
+    import json
+
+    import pytest
+
+    from agentbisect.hooks.opencode import prepare_repo_run
+    from agentbisect.models import SabotageSpec
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    (repo / "m.py").write_text("def add(a, b):\n    return a + b\n")
+    good = SabotageSpec(at_step=2, file="m.py", find="a + b", replace="a - b")
+    run = prepare_repo_run(
+        str(repo), "p", tmp_path / "runs", run_id="r", setup=False, sabotage=good
+    )
+    assert json.loads((run / "task.json").read_text())["sabotage"]["at_step"] == 2
+    bad = SabotageSpec(at_step=2, file="m.py", find="nope", replace="x")
+    with pytest.raises(ValueError, match="exactly once"):
+        prepare_repo_run(str(repo), "p", tmp_path / "runs", run_id="r2", setup=False, sabotage=bad)
+    assert not (tmp_path / "runs" / "r2").exists()

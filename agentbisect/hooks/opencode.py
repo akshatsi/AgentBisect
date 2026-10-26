@@ -63,6 +63,7 @@ from agentbisect.harness.tools import clip
 from agentbisect.llm import PROJECT_ROOT
 from agentbisect.models import (
     MUTATING_KINDS,
+    SabotageSpec,
     Step,
     TaskSpec,
     ToolKind,
@@ -300,6 +301,7 @@ def prepare_repo_run(
     run_id: str | None = None,
     ref: str | None = None,
     setup: bool = True,
+    sabotage: SabotageSpec | None = None,
 ) -> Path:
     """Set up ``runs/<id>/`` for a hand-started Alan Code session on the user's own project.
 
@@ -309,6 +311,9 @@ def prepare_repo_run(
     which runs the repo's build code, so use trusted repos only); with ``setup=False`` the
     AgentBisect interpreter is used. Raises ``workspace.SetupError`` if the install fails (the run
     directory and its ``setup.log`` stay for inspection).
+
+    ``sabotage`` plants a known break after the agent's ``at_step``-th step, exactly as for task
+    runs, to check that bisect names that step on a real project. ``find`` must occur exactly once.
     """
     run_dir = _new_run_dir(runs_dir, run_id or _default_run_id(_repo_name(origin), model_alias))
     run_id = run_dir.name
@@ -316,6 +321,13 @@ def prepare_repo_run(
     try:
         workspace.materialize(origin, workdir, ref=ref)
         _init_local_git(workdir)
+        if sabotage is not None:
+            target = workdir / sabotage.file
+            count = target.read_text().count(sabotage.find) if target.is_file() else 0
+            if count != 1:
+                raise ValueError(
+                    f"sabotage text must occur exactly once in {sabotage.file}; found {count}"
+                )
     except BaseException:
         shutil.rmtree(run_dir, ignore_errors=True)
         raise
@@ -332,6 +344,9 @@ def prepare_repo_run(
         python=python,
     )
     Trace(meta=meta).save(run_dir)
+    if sabotage is not None:  # the step handler reads the planted break from task.json
+        spec = TaskSpec(id=run_id, title="own repo", prompt=prompt, repo=workdir, sabotage=sabotage)
+        (run_dir / "task.json").write_text(spec.model_dump_json(indent=2))
     test_command = workspace.detect_test_command(workdir)
     (run_dir / "PROMPT.txt").write_text(repo_prompt(prompt, python, test_command))
     _install_plugin(run_dir, workdir)

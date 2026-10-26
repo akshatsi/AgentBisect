@@ -6,6 +6,7 @@ import shlex
 from pathlib import Path
 
 import typer
+import yaml
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
@@ -16,6 +17,7 @@ from agentbisect.models import (
     CulpritReport,
     RepairEpisode,
     RunReport,
+    SabotageSpec,
     StudySummary,
     TaskSpec,
     Trace,
@@ -142,6 +144,12 @@ def record(
         help="With --repo: skip installing the project's dependencies (the install runs the "
         "project's build code).",
     ),
+    sabotage: Path | None = typer.Option(
+        None,
+        "--sabotage",
+        help="With --repo: YAML with at_step, file, find, replace. Plants a known break after "
+        "that step, to check that bisect names it.",
+    ),
     model: str | None = typer.Option(
         None, "--model", help="Model alias from tasks/models.yaml (for the pick in Alan Code)."
     ),
@@ -166,13 +174,15 @@ def record(
         if harness:
             raise _fail(console, "--harness works with --task only, not with --repo.")
         text = _read_prompt(console, prompt, prompt_file)
-        _record_repo(console, repo, text, runs_dir, model, run_id, ref, not no_setup)
+        planted = _load_sabotage(console, sabotage) if sabotage is not None else None
+        _record_repo(console, repo, text, runs_dir, model, run_id, ref, not no_setup, planted)
         return
     assert task is not None
     for flag, value in (
         ("--prompt", prompt),
         ("--prompt-file", prompt_file),
         ("--ref", ref),
+        ("--sabotage", sabotage),
     ):
         if value is not None:
             raise _fail(console, f"{flag} works with --repo only.")
@@ -183,6 +193,13 @@ def record(
         _record_with_harness(console, spec, model, runs_dir, run_id)
     else:
         _record_with_alan_code(console, spec, model, runs_dir, run_id)
+
+
+def _load_sabotage(console: Console, path: Path) -> SabotageSpec:
+    try:
+        return SabotageSpec.model_validate(yaml.safe_load(path.read_text()))
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        raise _fail(console, f"Cannot read the sabotage file {path}: {e}") from e
 
 
 def _read_prompt(console: Console, prompt: str | None, prompt_file: Path | None) -> str:
@@ -217,6 +234,7 @@ def _record_repo(
     run_id: str | None,
     ref: str | None,
     setup: bool,
+    sabotage: SabotageSpec | None = None,
 ) -> None:
     try:
         from agentbisect.hooks.opencode import prepare_repo_run
@@ -229,7 +247,14 @@ def _record_repo(
         with console.status(f"{what}. This can take a minute."):
             run_dir = Path(
                 prepare_repo_run(
-                    repo, prompt, runs_dir, model_alias=model, run_id=run_id, ref=ref, setup=setup
+                    repo,
+                    prompt,
+                    runs_dir,
+                    model_alias=model,
+                    run_id=run_id,
+                    ref=ref,
+                    setup=setup,
+                    sabotage=sabotage,
                 )
             )
     except setup_error as e:

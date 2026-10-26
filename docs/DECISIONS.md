@@ -46,3 +46,4 @@ One line per non-obvious choice: date, decision, reason.
 - 2026-10-26 · Snapshots ignore the project's own `.gitignore` (`git add --force` with our exclude pathspecs). humanize's build-time `_version.py` is gitignored, and without it every restored snapshot failed to import. Build output (`build/`, `dist/`, `*.egg-info/`, `.tox/`) is now in our own excludes.
 - 2026-10-26 · The recorder plugin folder `.opencode/` is in the workdir's local `.git/info/exclude`, so the agent's `git status` does not show it.
 - 2026-10-26 · Terminal color codes are stripped before parsing pytest results and matching failure signals. humanize sets `--color=yes`, which hid every result line from the auto-oracle.
+- 2026-10-26 · `record --repo` takes `--sabotage FILE` (YAML: at_step, file, find, replace) to plant a known break in a real project, checked to occur exactly once before the run starts.

@@ -301,7 +301,15 @@ def install_fake_repo_flow(monkeypatch: pytest.MonkeyPatch, *, fail: bool = Fals
     mod = types.ModuleType("agentbisect.hooks.opencode")
 
     def prepare_repo_run(  # noqa: ANN202
-        origin, prompt, runs_dir, *, model_alias=None, run_id=None, ref=None, setup=True
+        origin,
+        prompt,
+        runs_dir,
+        *,
+        model_alias=None,
+        run_id=None,
+        ref=None,
+        setup=True,
+        sabotage=None,
     ):
         calls.append(
             dict(
@@ -311,6 +319,7 @@ def install_fake_repo_flow(monkeypatch: pytest.MonkeyPatch, *, fail: bool = Fals
                 run_id=run_id,
                 ref=ref,
                 setup=setup,
+                sabotage=sabotage,
             )
         )
         run = Path(runs_dir) / (run_id or "repo-run")
@@ -406,6 +415,7 @@ def test_record_repo_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
             run_id="r1",
             ref="dev",
             setup=False,
+            sabotage=None,
         )
     ]
     assert "1. Open the Alan app" in result.output
@@ -654,3 +664,24 @@ def test_run_nothing_at_all_keeps_old_message_and_exits_1(
     result = invoke("run", "--trace", str(synthetic))
     assert result.exit_code == 1
     assert "No failing check to bisect" in result.output
+
+
+def test_record_repo_passes_sabotage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = install_fake_repo_flow(monkeypatch)
+    sab = tmp_path / "sab.yaml"
+    sab.write_text("at_step: 5\nfile: src/x.py\nfind: 'a + b'\nreplace: 'a - b'\n")
+    result = invoke(
+        "record", "--repo", "/some/proj", "--prompt", "go", "--sabotage", str(sab),
+        "--runs-dir", str(tmp_path / "runs"),
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert calls[0]["sabotage"].at_step == 5
+    assert calls[0]["sabotage"].replace == "a - b"
+
+
+def test_record_task_rejects_sabotage_flag(tmp_path: Path) -> None:
+    sab = tmp_path / "sab.yaml"
+    sab.write_text("at_step: 1\nfile: a\nfind: b\nreplace: c\n")
+    result = invoke("record", "--task", "tasks/t01.yaml", "--sabotage", str(sab))
+    assert result.exit_code != 0
+    assert "works with --repo only" in result.output
