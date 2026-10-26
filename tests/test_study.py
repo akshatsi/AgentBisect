@@ -23,10 +23,12 @@ from agentbisect.models import (
     CulpritReport,
     RepairEpisode,
     RunReport,
+    Step,
     StudyRow,
     StudySummary,
     ToolKind,
     Trace,
+    TraceMeta,
     TraceSource,
 )
 from agentbisect.study import collect, summarize, write
@@ -636,3 +638,76 @@ def test_collect_never_touches_the_excluded_runs(runs_dir: Path) -> None:
     untouched = runs_dir / "x-old"
     assert not (untouched / "bisect.json").exists()
     assert not (runs_dir / "t03-syn" / "bisect.json").exists()
+
+
+# --------------------------------------------------------------------------- no opportunity (§4.4)
+
+
+def test_no_opportunity_rows_leave_the_lag_statistics_but_not_the_shares() -> None:
+    def row(run: str, t_err: int, lag: int | None, no_opp: bool = False, **kw) -> StudyRow:
+        return StudyRow(
+            run_id=run,
+            task_id="t",
+            model="flash",
+            n_steps=20,
+            final_failed=True,
+            bisectable=True,
+            check="c",
+            t_err=t_err,
+            t_obs=None if lag is None else t_err + lag,
+            lag=lag,
+            censored=lag is None,
+            steps_after_err=20 - t_err,
+            wasted_tokens=10 * (20 - t_err),
+            total_tokens=200,
+            no_opportunity=no_opp,
+            **kw,
+        )
+
+    rows = [
+        row("a", 10, 2),
+        row("b", 12, None),
+        row("c", 20, None, no_opp=True),
+        row("s", 20, None, no_opp=True, sabotage_step=20, sabotage_correct=True),
+    ]
+    s = summarize(StudySummary(rows=rows))
+    assert (metric(s, "Broken-run share").value, metric(s, "Broken-run share").n) == (1.0, 3)
+    assert metric(s, "Bisectable share of broken runs").n == 3
+    cens = metric(s, "Censoring rate of broken runs")  # only a and b: b is censored
+    assert (cens.value, cens.n) == (0.5, 2)
+    assert metric(s, "Noticed at once (lag 0)").n == 2
+    assert metric(s, "Wasted-token share (pooled)").n == 2
+    assert metric(s, "Wasted-token share (pooled)").value == pytest.approx((100 + 80) / 400)
+    count = metric(s, "No opportunity to observe (break on last step)")
+    assert (count.value, count.n) == (1.0, 3) and "Sabotage runs with this flag: 1" in count.note
+    sab = metric(s, "Sabotage accuracy")  # the no-opportunity sabotage row still counts
+    assert (sab.value, sab.n) == (1.0, 1)
+
+
+def test_piped_pytest_failure_starts_an_episode_and_a_cut_off_tail_is_not_a_pass() -> None:
+    from agentbisect.bisect import _could_show_failure, _episode_starts, _shows_pass
+
+    def sh(i: int, cmd: str, out: str) -> Step:
+        return Step(
+            index=i, tool="bash", kind=ToolKind.SHELL, args={"command": cmd}, output=out,
+            exit_code=0,
+        )  # fmt: skip
+
+    node = "tests/test_calc.py::test_add"
+    fail = sh(1, "python -m pytest -q | tail -3", f"FAILED {node} - assert 1 == 2\n1 failed in 1s")
+    cut = sh(2, "python -m pytest -q | tail -3", "...\n  some tail text")
+    ok = sh(3, "python -m pytest -q | tail -3", "4 passed in 0.1s")
+    assert _could_show_failure(fail) and not _could_show_failure(sh(4, "ls", "FAILED"))
+    assert not _shows_pass(cut) and _shows_pass(ok)
+    assert _shows_pass(sh(5, "python -m pytest -q", "no summary"))  # unpiped: exit code rules
+    trace = Trace(
+        meta=TraceMeta(
+            run_id="r", source=TraceSource.ALAN_CODE, workdir=Path("/w"), base_snapshot="0" * 40
+        ),
+        steps=[fail, cut, ok],
+    )
+    (start,) = _episode_starts(trace, [node])
+    assert (start.k, start.fixed) == (1, True)  # fixed only by the step that shows "4 passed"
+    only_cut = Trace(meta=trace.meta, steps=[fail, cut])
+    (start,) = _episode_starts(only_cut, [node])
+    assert not start.fixed

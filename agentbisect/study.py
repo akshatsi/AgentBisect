@@ -207,6 +207,7 @@ def _rows(name: str, trace: Trace, report: RunReport) -> list[StudyRow]:
                     if meta.sabotage_step is None
                     else bool(found and a and a.t_err == meta.sabotage_step)
                 ),
+                no_opportunity=bool(found and a and a.no_opportunity),
             )
         )
     return rows
@@ -288,7 +289,14 @@ def summarize(summary: StudySummary) -> StudySummary:
         )
     )
 
-    primary = _primary_rows(task_rows)
+    # Runs whose break came on the last step had no chance to be seen (METHODS §4.4). They stay in
+    # the shares above and in sabotage accuracy, and drop out of everything about lag.
+    primary_all = _primary_rows(task_rows)
+    primary = [r for r in primary_all if not r.no_opportunity]
+    n_no_opp = len(primary_all) - len(primary)
+    n_sab_no_opp = len(
+        [r for r in _primary_rows(sabotage_rows) if r.no_opportunity],
+    )
     n_cens = sum(1 for r in primary if r.censored)
     metrics.append(
         _proportion(
@@ -311,6 +319,17 @@ def summarize(summary: StudySummary) -> StudySummary:
     )
     metrics.append(_km_metric(primary))
     metrics.extend(_wasted_metrics(primary))
+    metrics.append(
+        Metric(
+            name="No opportunity to observe (break on last step)",
+            value=float(n_no_opp),
+            n=len(primary_all),
+            method="count",
+            note=f"{n_no_opp} of {len(primary_all)} bisectable broken task runs; left out of "
+            "the censoring rate, the Kaplan-Meier curve and the wasted-token share "
+            f"(METHODS §4.4). Sabotage runs with this flag: {n_sab_no_opp}.",
+        )
+    )
 
     # A sabotage run is judged on the final state, or on a break the agent saw: an episode
     # whose decisive step is the injected one shows the break was live where it was detected.

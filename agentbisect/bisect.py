@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agentbisect import snapshot, stats
-from agentbisect.analyze import SignalMatcher, analyze, strip_ansi
+from agentbisect.analyze import SignalMatcher, analyze, is_piped_pytest, strip_ansi
 from agentbisect.models import (
     BisectResult,
     BisectStatus,
@@ -546,9 +546,29 @@ def _covers(targets: list[str], partial: bool, node: str) -> bool:
 
 
 def _could_show_failure(step: Step) -> bool:
-    if step.kind is not ToolKind.SHELL or step.exit_code == 0:
+    if step.kind is not ToolKind.SHELL:
         return False
-    return pytest_run(_command(step)) is not None
+    command = _command(step)
+    if step.exit_code == 0 and not is_piped_pytest(command):
+        return False
+    return pytest_run(command) is not None
+
+
+_SUMMARY_PASSED = re.compile(r"\b\d+ passed\b")
+_SUMMARY_BAD = re.compile(r"\b\d+ (?:failed|errors?)\b")
+
+
+def _shows_pass(step: Step) -> bool:
+    """True if a pytest step without a failure signal can be read as "the tests passed".
+
+    An unpiped run reports its exit code, and the missing signal is enough. A piped run
+    (``pytest | tail``) hides the exit code and may cut off the failure list, so its output must
+    carry a pytest summary that counts passes and no failures or errors.
+    """
+    if not is_piped_pytest(_command(step)):
+        return True
+    out = strip_ansi(step.output)
+    return bool(_SUMMARY_PASSED.search(out)) and not _SUMMARY_BAD.search(out)
 
 
 class _Start:
@@ -589,7 +609,7 @@ def _episode_starts(trace: Trace, nodes: list[str]) -> list[_Start]:
                     start = _Start(node, step.index, last_pass.get(node))
                     starts.append(start)
                     open_start[node] = start
-            elif _covers(targets, partial, node):
+            elif _covers(targets, partial, node) and _shows_pass(step):
                 current = open_start.get(node)
                 if current is not None:
                     current.fixed = True

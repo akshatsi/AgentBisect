@@ -162,7 +162,7 @@ def test_break_at_last_step_is_censored_with_zero_exposure(tmp_path: Path) -> No
     run = tmp_path / "run"
     trace = make_synthetic_run(run, n_steps=8, break_at=8)
     a = analyze(trace, found(8), run)
-    assert a.censored and a.steps_after_err == 0 and a.wasted_tokens == 0
+    assert a.censored and a.steps_after_err == 0 and a.wasted_tokens == 0 and a.no_opportunity
 
 
 def test_signal_before_t_err_is_ignored(tmp_path: Path) -> None:
@@ -254,3 +254,117 @@ def test_colored_pytest_output_is_parsed():
     assert SignalMatcher("python -m pytest -q tests/t.py::test_b", [])._line_matches(
         strip_ansi(colored.splitlines()[1])
     )
+
+
+# --------------------------------------------------------------------------- piped pytest, P1b (§4.2)
+
+TAIL_OUT = (
+    "FAILED tests/test_auth.py::TestAuth::test_login - AssertionError\n1 failed, 3 passed in 0.1s"
+)
+
+
+def piped(command: str, output: str = TAIL_OUT, exit_code: int | None = 0) -> Step:
+    return Step(
+        index=1,
+        tool="bash",
+        kind=ToolKind.SHELL,
+        args={"command": command},
+        output=output,
+        exit_code=exit_code,
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m pytest -q tests | tail -5",
+        "pytest 2>&1 | tee log",
+        "cd /w && '/a b/venv/bin/python' -m pytest -q tests -p no:benchmark 2>&1 | tail -3",
+        "FOO=1 uv run pytest -q | head",
+    ],
+)
+def test_piped_pytest_with_exit_zero_is_observed(command: str) -> None:
+    assert SignalMatcher(LOGIN, []).signal(piped(command)) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat old.log | tail",  # does not run pytest
+        "grep FAILED log",
+        "grep pytest log | tail",  # "pytest" is an argument, not the program
+        "pytest -q tests || true",  # `||` is not a pipe
+        "pytest -q tests",  # no pipe, exit code 0 means pass
+        "set -o pipefail; pytest -q | tail",  # pipefail: exit code is real again
+    ],
+)
+def test_other_commands_with_exit_zero_are_not_observed(command: str) -> None:
+    assert SignalMatcher(LOGIN, []).signal(piped(command)) is None
+
+
+def test_piped_pytest_counts_only_test_specific_patterns() -> None:
+    tb = 'Traceback (most recent call last):\n  File "/w/src/auth/session.py", line 4, in f\n'
+    cmd = "pytest -q | tail -20"
+    matcher = SignalMatcher(LOGIN, TOUCHED)
+    assert matcher.signal(piped(cmd, tb)) is None  # P4 needs a non-zero exit
+    assert matcher.signal(piped(cmd, "src/auth/session.py:41: AssertionError")) is None  # P5
+    assert matcher.signal(piped(cmd, tb, exit_code=1)) is not None
+    assert matcher.signal(piped(cmd, "______ TestAuth.test_login ______")) is not None  # P2
+    assert matcher.signal(piped(cmd, "____ ERROR collecting tests/test_auth.py ____")) is not None
+
+
+def test_piped_pytest_strips_colors_before_matching() -> None:
+    out = "\x1b[31mERROR\x1b[0m tests/test_auth.py::\x1b[1mTestAuth\x1b[0m::test_login"
+    assert SignalMatcher(LOGIN, []).signal(piped("pytest | tail -3", out)) is not None
+
+
+@pytest.mark.parametrize(
+    ("line", "hit"),
+    [
+        ("ERROR tests/test_auth.py - SyntaxError: bad", True),  # file failed to collect
+        ("ERROR tests/test_auth.py", True),
+        ("ERROR test_auth.py - ImportError", True),
+        ("\x1b[31mERROR\x1b[0m tests/test_auth.py - boom", True),
+        ("ERROR tests/test_other.py - SyntaxError", False),
+        ("ERROR tests/my_test_auth.py - SyntaxError", False),  # not the same file
+        ("ERROR tests/test_auth.py::TestAuth::test_other - x", False),  # another test's node ID
+        ("collected 3 items; see tests/test_auth.py", False),
+    ],
+)
+def test_p1b_collection_error_names_the_file(line: str, hit: bool) -> None:
+    assert SignalMatcher(LOGIN, [])._line_matches(line) is hit
+
+
+# --------------------------------------------------------------------------- no opportunity (§4.4)
+
+
+def test_break_on_non_shell_last_step_is_no_opportunity(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=8, break_at=8)
+    a = analyze(trace, found(8), run)
+    assert a.no_opportunity and a.censored and a.steps_after_err == 0 and a.t_obs is None
+
+
+def test_planted_break_on_a_shell_last_step_is_no_opportunity(tmp_path: Path) -> None:
+    # The planted edit is applied after the step's tool ran, so its output cannot show the break.
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=8, break_at=8, observe_at=8)
+    trace.meta.sabotage_step = 8
+    a = analyze(trace, found(8), run)
+    assert a.no_opportunity and a.censored and a.t_obs is None and a.observed_signal is None
+
+
+def test_organic_shell_last_step_that_shows_the_failure_is_lag_zero(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=8, break_at=8, observe_at=8)
+    trace.meta.sabotage_step = None  # the synthetic run labels its break; an organic one has none
+    a = analyze(trace, found(8), run)
+    assert not a.no_opportunity and not a.censored and (a.t_obs, a.lag) == (8, 0)
+
+
+def test_planted_break_before_the_last_step_has_an_opportunity(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=10, break_at=6, observe_at=8)
+    trace.meta.sabotage_step = 6
+    a = analyze(trace, found(6), run)
+    assert not a.no_opportunity and a.lag == 2
