@@ -9,7 +9,7 @@ then a **new** Alan Code conversation on the printed `workdir` folder. If a run 
 | 2 | t06 | runs/t06-flash-20261026-132352 | done (green, 18 steps) |
 | 3 | t08 | runs/t08-flash-20261026-133042 | done (green, 18 steps) |
 | 4 | t04 | | |
-| 5 | s03 (sabotage) | runs/s03-flash-20261026-135147 | prepared (moved ahead of run 4 to get a broken trace early) |
+| 5 | s03 (sabotage) | runs/s03-flash-20261026-135147 | done: break at 9 seen at 13, fixed at 18; bisect of 0..13 finds step 9 (moved ahead of run 4) |
 | 6 | t05 | | |
 | 7 | t07 | | |
 | 8 | t01 | runs/t01-flash-20261026-095102 | done (green) |
