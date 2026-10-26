@@ -148,6 +148,19 @@ class OracleConfig(BaseModel):
     )
 
 
+class OraclePolicy(BaseModel):
+    """How many times to run the oracle per snapshot and when to stop.
+
+    Built by ``stats.make_policy`` from the rules in METHODS.md §2; applied by ``oracle.py``
+    through ``stats.decide``. ``oracle.py`` never hard-codes these numbers.
+    """
+
+    flake_rate: float = Field(ge=0.0, lt=0.5, description="Per-run flip probability assumed.")
+    max_runs: int = Field(ge=1, description="Hard cap on runs per snapshot.")
+    per_probe_error: float = Field(ge=0.0, le=1.0, description="Max error per oracle decision.")
+    rule: str = Field(description="Human-readable name of the decision rule, for the bisect log.")
+
+
 class OracleRun(BaseModel):
     """One execution of the check command."""
 
@@ -191,6 +204,7 @@ class BisectResult(BaseModel):
         default_factory=list, description="Every oracle decision, in the order made."
     )
     precondition_probes: int = Field(default=0, description="Probes spent on step 0 and step n.")
+    policy: OraclePolicy | None = Field(default=None, description="Oracle policy used.")
     non_monotone: bool = False
     transitions: list[int] = Field(
         default_factory=list,
