@@ -1,0 +1,33 @@
+<div class="chartwrap">
+<svg class="chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Steps between the break and the first sighting, one row per run">
+  {% for t in chart.ticks %}
+  <line class="grid" x1="{{ t.x }}" x2="{{ t.x }}" y1="22" y2="{{ chart.axis_y }}"/>
+  <text class="muted" x="{{ t.x }}" y="14" text-anchor="middle">{{ t.label }}</text>
+  {% endfor %}
+  <line class="axis" x1="{{ chart.plot_x }}" x2="{{ chart.plot_right }}" y1="{{ chart.axis_y }}" y2="{{ chart.axis_y }}"/>
+  {% for b in chart.bars %}
+  <g>
+    <title>{{ b.title }}</title>
+    {% if b.href %}<a href="{{ b.href }}">{% endif %}
+    <text x="{{ chart.plot_x - 10 }}" y="{{ b.y + 4 }}" text-anchor="end">{{ b.label }}</text>
+    {% if b.href %}</a>{% endif %}
+    <line class="runend" x1="{{ b.x_end }}" x2="{{ b.x_end }}" y1="{{ b.y - 8 }}" y2="{{ b.y + 8 }}"/>
+    {% if b.kind == 'censored' %}
+    <rect class="openbar" x="{{ b.x_err }}" y="{{ b.y - 5 }}" width="{{ [b.x_end - b.x_err, 2]|max }}" height="10"/>
+    <polygon class="arrow" points="{{ b.x_end }},{{ b.y - 8 }} {{ b.x_end + 12 }},{{ b.y }} {{ b.x_end }},{{ b.y + 8 }}"/>
+    <circle class="err" cx="{{ b.x_err }}" cy="{{ b.y }}" r="5"/>
+    <text class="muted" x="{{ b.x_end + 18 }}" y="{{ b.y + 4 }}">{{ b.text }}</text>
+    {% elif b.kind == 'instant' %}
+    <circle class="obs" cx="{{ b.x_err + 4 }}" cy="{{ b.y }}" r="5"/>
+    <circle class="err" cx="{{ b.x_err - 1 }}" cy="{{ b.y }}" r="5"/>
+    <text class="muted" x="{{ (b.x_err + 14) if (b.x_end - b.x_err > 90 or b.x_end < b.x_err) else (b.x_end + 12) }}" y="{{ b.y + 4 }}">{{ b.text }}</text>
+    {% else %}
+    <line class="span" x1="{{ b.x_err }}" x2="{{ b.x_obs }}" y1="{{ b.y }}" y2="{{ b.y }}"/>
+    <circle class="err" cx="{{ b.x_err }}" cy="{{ b.y }}" r="5"/>
+    <circle class="obs" cx="{{ b.x_obs }}" cy="{{ b.y }}" r="5"/>
+    <text class="muted" x="{{ (b.x_obs + 12) if (b.x_end - b.x_obs > 90 or b.x_end < b.x_obs) else (b.x_end + 12) }}" y="{{ b.y + 4 }}">{{ b.text }}</text>
+    {% endif %}
+  </g>
+  {% endfor %}
+</svg>
+</div>
