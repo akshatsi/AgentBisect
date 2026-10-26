@@ -14,8 +14,9 @@ from typer.testing import CliRunner
 from agentbisect import llm
 from agentbisect.cli import app
 from agentbisect.llm import FakeLLM
-from agentbisect.models import TraceMeta, TraceSource
+from agentbisect.models import StudySummary, TraceMeta, TraceSource
 from agentbisect.synthetic import make_synthetic_run
+from tests.test_study_report import make_summary
 
 CHECK = "python -m pytest -q tests/test_calc.py::test_add"
 PROJECT = Path(__file__).resolve().parents[1]
@@ -280,7 +281,150 @@ def test_record_harness_prints_model_and_cap_then_records(
 # --------------------------------------------------------------------------- study
 
 
-def test_study_is_a_clear_stub() -> None:
-    result = invoke("study", "--models", "qwen", "--repeats", "2")
+def fake_study_module(summary: StudySummary) -> types.ModuleType:
+    """A stand-in for agentbisect.study: the CLI is tested apart from the real aggregator."""
+    mod = types.ModuleType("agentbisect.study")
+    mod.calls = []  # type: ignore[attr-defined]
+
+    def collect(runs_dir: Path, *, rebisect: bool = False) -> StudySummary:
+        mod.calls.append(("collect", Path(runs_dir), rebisect))  # type: ignore[attr-defined]
+        return summary.model_copy(deep=True)
+
+    def summarize(s: StudySummary) -> StudySummary:
+        return s.model_copy(update={"metrics": make_summary().metrics})
+
+    def write(s: StudySummary, out_dir: Path) -> Path:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / "study.json"
+        path.write_text(s.model_dump_json(indent=2))
+        return path
+
+    mod.collect, mod.summarize, mod.write = collect, summarize, write  # type: ignore[attr-defined]
+    return mod
+
+
+@pytest.fixture
+def study_runs(tmp_path: Path) -> Path:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    return runs
+
+
+def test_study_missing_runs_folder_exits_2(tmp_path: Path) -> None:
+    result = invoke("study", "--runs", str(tmp_path / "nope"))
     assert result.exit_code == 2
-    assert "M3" in result.output
+    assert "does not exist" in result.output
+
+
+def test_study_empty_runs_folder_says_so_and_exits_1(
+    study_runs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "agentbisect.study", fake_study_module(StudySummary()))
+    result = invoke("study", "--runs", str(study_runs))
+    assert result.exit_code == 1
+    assert "No usable runs" in result.output
+    assert not (study_runs / "study").exists()
+
+
+def test_study_empty_runs_folder_with_the_real_module(study_runs: Path) -> None:
+    pytest.importorskip("agentbisect.study")
+    result = invoke("study", "--runs", str(study_runs))
+    assert result.exit_code == 1
+    assert "No usable runs" in result.output
+
+
+def test_study_lists_exclusions_when_nothing_is_usable(
+    study_runs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    summary = StudySummary(excluded={"t04-1": "resumed an earlier conversation"})
+    monkeypatch.setitem(sys.modules, "agentbisect.study", fake_study_module(summary))
+    result = invoke("study", "--runs", str(study_runs))
+    assert result.exit_code == 1
+    assert "t04-1" in result.output and "resumed an earlier conversation" in result.output
+
+
+def test_study_writes_json_html_and_draft_and_prints_tables(
+    study_runs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = fake_study_module(make_summary())
+    monkeypatch.setitem(sys.modules, "agentbisect.study", fake)
+    result = invoke("study", "--runs", str(study_runs), "--rebisect")
+    assert result.exit_code == 0, result.output
+    assert fake.calls == [("collect", study_runs.resolve(), True)]  # type: ignore[attr-defined]
+    out = study_runs / "study"
+    for name in ("study.json", "study.html", "RESULTS.draft.md"):
+        assert (out / name).exists(), name
+    for needle in (
+        "Runs",
+        "t04-flash-1",
+        "censored",
+        "Excluded runs",
+        "Alan resumed an earlier conversation",
+        "Repaired breaks",
+        "Metrics",
+        "broken-run share",
+        "Audited by math-analyst: pending",
+    ):
+        assert needle in result.output, needle
+    # No run folder exists on disk, so the page links to none of them.
+    assert "report.html" not in (out / "study.html").read_text()
+
+
+def test_study_links_to_runs_that_have_a_report(
+    study_runs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make_synthetic_run(study_runs / "t04-flash-1", n_steps=10, break_at=4, observe_at=7)
+    monkeypatch.setitem(sys.modules, "agentbisect.study", fake_study_module(make_summary()))
+    result = invoke("study", "--runs", str(study_runs))
+    assert result.exit_code == 0, result.output
+    assert (study_runs / "t04-flash-1" / "report.html").exists()
+    html = (study_runs / "study" / "study.html").read_text()
+    assert 'href="../t04-flash-1/report.html"' in html
+    assert "../t08-flash-1/report.html" not in html
+
+
+def test_study_models_filter(study_runs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    summary = make_summary()
+    summary.rows[1].model = "pro"
+    monkeypatch.setitem(sys.modules, "agentbisect.study", fake_study_module(summary))
+    result = invoke("study", "--runs", str(study_runs), "--models", "pro")
+    assert result.exit_code == 0, result.output
+    data = json.loads((study_runs / "study" / "study.json").read_text())
+    assert [r["run_id"] for r in data["rows"]] == ["t04-flash-1"]
+    assert all(e["run_id"] == "t04-flash-1" for e in data["episodes"])
+
+    none = invoke("study", "--runs", str(study_runs), "--models", "qwen")
+    assert none.exit_code == 1 and "No usable runs" in none.output
+
+
+def test_study_suite_filter(
+    study_runs: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "t04.yaml").write_text("id: t04\n")
+    monkeypatch.setitem(sys.modules, "agentbisect.study", fake_study_module(make_summary()))
+    result = invoke("study", "--runs", str(study_runs), "--suite", str(suite))
+    assert result.exit_code == 0, result.output
+    data = json.loads((study_runs / "study" / "study.json").read_text())
+    assert {r["task_id"] for r in data["rows"]} == {"t04"}
+
+
+def test_study_accepts_the_old_repeats_flag(
+    study_runs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "agentbisect.study", fake_study_module(make_summary()))
+    result = invoke("study", "--runs", str(study_runs), "--repeats", "3")
+    assert result.exit_code == 0, result.output
+    help_text = invoke("study", "--help").output
+    assert "--repeats" in help_text and "ignored" in help_text  # documented, not an option row
+    assert "--repeats  " not in help_text
+
+
+def test_study_without_the_study_module_exits_1(
+    study_runs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "agentbisect.study", None)
+    result = invoke("study", "--runs", str(study_runs))
+    assert result.exit_code == 1
+    assert "not available" in result.output

@@ -15,6 +15,7 @@ from agentbisect.models import (
     BisectStatus,
     CulpritReport,
     RunReport,
+    StudySummary,
     TaskSpec,
     Trace,
     TraceMeta,
@@ -362,24 +363,188 @@ def report(
 # --------------------------------------------------------------------------- study
 
 
+def _filter_summary(
+    summary: StudySummary, models: set[str] | None, tasks: set[str] | None
+) -> StudySummary:
+    """Keep rows (and their repaired-break episodes) for the chosen models and tasks."""
+    if models is None and tasks is None:
+        return summary
+    rows = [
+        r
+        for r in summary.rows
+        if (models is None or r.model in models) and (tasks is None or r.task_id in tasks)
+    ]
+    kept = {r.run_id for r in rows}
+    episodes = [e for e in summary.episodes if e.run_id in kept]
+    return summary.model_copy(update={"rows": rows, "episodes": episodes})
+
+
+def _print_study(console: Console, summary: StudySummary) -> None:
+    from agentbisect.report.study import (
+        broken_text,
+        lag_text,
+        metric_interval,
+        metric_value,
+        sabotage_text,
+        share_text,
+    )
+    from agentbisect.report.text import check_label
+
+    if summary.design:
+        console.print(f"[dim]{escape(summary.design)}[/dim]")
+
+    runs_table = Table(title="Runs", title_justify="left")
+    for col in (
+        "task",
+        "run",
+        "steps",
+        "broken?",
+        "t_err",
+        "t_obs",
+        "lag",
+        "wasted",
+        "sabotage ok",
+    ):
+        runs_table.add_column(col, overflow="fold")
+    for r in summary.rows:
+        runs_table.add_row(
+            escape(r.task_id),
+            escape(r.run_id),
+            str(r.n_steps),
+            escape(broken_text(r) + (f" ({check_label(r.check)})" if r.check else "")),
+            "-" if r.t_err is None else str(r.t_err),
+            "-" if r.t_obs is None else str(r.t_obs),
+            escape(lag_text(r)),
+            share_text(r),
+            sabotage_text(r),
+        )
+    console.print(runs_table)
+
+    if summary.excluded:
+        console.print("[bold]Excluded runs[/bold]")
+        for run_id, reason in sorted(summary.excluded.items()):
+            console.print(f"  {escape(run_id)}: {escape(reason)}")
+
+    if summary.episodes:
+        ep_table = Table(title="Repaired breaks (seen, then fixed)", title_justify="left")
+        for col in ("run", "test", "seen at", "t_err", "lag", "wasted tokens", "note"):
+            ep_table.add_column(col)
+        for e in summary.episodes:
+            ep_table.add_row(
+                escape(e.run_id),
+                escape(check_label(e.check)),
+                str(e.seen_at),
+                "-" if e.t_err is None else str(e.t_err),
+                "-" if e.lag is None else str(e.lag),
+                "-" if e.wasted_tokens is None else f"{e.wasted_tokens:,}",
+                escape(e.reason or ""),
+            )
+        console.print(ep_table)
+    else:
+        console.print("[dim]No repaired breaks found.[/dim]")
+
+    if summary.metrics:
+        m_table = Table(title="Metrics", title_justify="left")
+        for col in ("metric", "value", "95% CI", "n", "method"):
+            m_table.add_column(col)
+        for m in summary.metrics:
+            interval = metric_interval(m).removeprefix("95% CI ")
+            m_table.add_row(escape(m.name), metric_value(m), interval, str(m.n), escape(m.method))
+        console.print(m_table)
+
+
 @app.command()
 def study(
-    suite: Path = typer.Option(Path("tasks"), "--suite", help="Folder of task YAMLs."),
-    models: str = typer.Option("qwen,flash,glm,kimi", "--models", help="Model aliases."),
-    repeats: int = typer.Option(1, "--repeats", help="Runs per task and model."),
+    runs: Path = typer.Option(
+        Path("runs"), "--runs", help="Folder of recorded run folders (runs/<id>/)."
+    ),
+    rebisect: bool = typer.Option(
+        False, "--rebisect", help="Bisect every run again instead of reusing its bisect.json."
+    ),
+    models: str | None = typer.Option(
+        None, "--models", help="Only runs of these model aliases, comma-separated (e.g. flash)."
+    ),
+    suite: Path | None = typer.Option(
+        None, "--suite", help="Only runs of tasks that have a YAML in this folder (e.g. tasks/)."
+    ),
+    repeats: int | None = typer.Option(
+        None,
+        "--repeats",
+        hidden=True,
+        help="Ignored. Runs are recorded by hand, so the repeat count is whatever you recorded.",
+    ),
 ) -> None:
-    """Run many tasks across models and compute detection-lag statistics (comes in M3)."""
+    """Add up recorded runs into lag statistics, a study page and a draft RESULTS.
+
+    Reads the runs/<id>/ folders and never starts an agent. Writes study.json, study.html and
+    RESULTS.draft.md into <runs>/study/. Exits 1 when no run is usable. The old --repeats flag is
+    accepted and ignored: runs are recorded by hand, so the repeat count is what you recorded.
+    """
+    import importlib
+
     console = _console()
-    table = Table(show_header=False, box=None)
-    table.add_row("suite", escape(str(suite)))
-    table.add_row("models", escape(models))
-    table.add_row("repeats", str(repeats))
-    console.print(table)
+    runs = runs.resolve()
+    if not runs.is_dir():
+        raise _fail(console, f"The runs folder {runs} does not exist.")
+    try:
+        study_mod = importlib.import_module("agentbisect.study")
+    except ImportError as e:
+        raise _fail(console, f"The study module is not available yet ({e}).", 1) from e
+
+    wanted = {m.strip() for m in models.split(",") if m.strip()} if models else None
+    tasks: set[str] | None = None
+    if suite is not None:
+        if not suite.is_dir():
+            raise _fail(console, f"The suite folder {suite} does not exist.")
+        tasks = {p.stem for p in suite.glob("*.yaml") if p.stem != "models"}
+
+    try:
+        summary = study_mod.collect(runs, rebisect=rebisect)
+    except Exception as e:
+        raise _fail(console, f"Cannot read the runs in {runs}: {e}", 1) from e
+    summary = _filter_summary(summary, wanted, tasks)
+
+    if not summary.rows:
+        console.print(f"[yellow]No usable runs in {escape(str(runs))}.[/yellow]")
+        if summary.excluded:
+            console.print("[bold]Excluded runs[/bold]")
+            for run_id, reason in sorted(summary.excluded.items()):
+                console.print(f"  {escape(run_id)}: {escape(reason)}")
+        console.print(
+            "Record runs with `agentbisect record`, run them in Alan Code, then try again."
+        )
+        raise typer.Exit(EXIT_NOTHING_FOUND)
+
+    summary = study_mod.summarize(summary)
+    out_dir = runs / "study"
+    json_path = study_mod.write(summary, out_dir)
+
+    from agentbisect.report.render import render_report
+    from agentbisect.report.study import render_results_draft, render_study
+
+    linkable: set[str] = set()
+    for run_id in sorted({r.run_id for r in summary.rows}):
+        run_dir = runs / run_id
+        if not (run_dir / "meta.json").exists() or not (run_dir / "trace.jsonl").exists():
+            continue
+        try:
+            render_report(run_dir)
+            linkable.add(run_id)
+        except Exception:  # a run whose page fails stays in the study, unlinked
+            continue
+    try:
+        html_path = render_study(summary, out_dir, link_prefix="../", linkable=linkable)
+        draft_path = render_results_draft(summary, out_dir)
+    except Exception as e:
+        raise _fail(console, f"Cannot build the study page: {e}", 1) from e
+
+    _print_study(console, summary)
+    console.print(f"[bold green]Wrote[/bold green] {escape(str(json_path))}")
+    console.print(f"[bold green]Wrote[/bold green] {escape(str(html_path))}")
+    console.print(f"[bold green]Wrote[/bold green] {escape(str(draft_path))}")
     console.print(
-        "[yellow]`agentbisect study` comes in M3.[/yellow] It will print a cost estimate and ask "
-        "you to confirm before it spends any credits."
+        "Audited by math-analyst: pending. Copy RESULTS.draft.md to docs/RESULTS.md after."
     )
-    raise typer.Exit(EXIT_USAGE)
 
 
 if __name__ == "__main__":
