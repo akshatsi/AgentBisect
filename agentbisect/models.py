@@ -326,3 +326,40 @@ class StudyRow(BaseModel):
 
 
 TaskSpec.model_rebuild()
+
+
+class RepairEpisode(BaseModel):
+    """A break the agent saw and later fixed: bisected over steps 0..k (METHODS §8)."""
+
+    run_id: str
+    check: str
+    seen_at: int = Field(ge=1, description="Agent pytest step k whose output showed the failure.")
+    t_err: int | None = Field(default=None, description="Decisive step in 0..k; None if unfound.")
+    lag: int | None = None
+    wasted_tokens: int | None = None
+    reason: str | None = Field(default=None, description="Why it could not be bisected, if so.")
+
+
+class Metric(BaseModel):
+    """One reported number with its interval, for RESULTS.md and the study page."""
+
+    name: str
+    value: float | None = Field(description="None when not estimable (e.g. KM median not reached).")
+    ci_low: float | None = None
+    ci_high: float | None = None
+    n: int = Field(description="Sample size behind the number.")
+    method: str = Field(description="E.g. 'Wilson 95%', 'Kaplan-Meier, Greenwood log-log'.")
+    note: str | None = None
+
+
+class StudySummary(BaseModel):
+    """Everything `agentbisect study` computes. Written to runs/study/study.json."""
+
+    rows: list[StudyRow] = Field(default_factory=list)
+    excluded: dict[str, str] = Field(
+        default_factory=dict, description="run_id -> reason it is not study data."
+    )
+    episodes: list[RepairEpisode] = Field(default_factory=list)
+    metrics: list[Metric] = Field(default_factory=list)
+    design: str = Field(default="", description="Which METHODS §8 variant, in one line.")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
