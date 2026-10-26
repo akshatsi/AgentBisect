@@ -136,6 +136,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .ai { border: 1px dashed var(--muted); }
 .ai .label { font-weight: 700; }
 .truth.ok { color: var(--green); } .truth.bad { color: var(--red); }
+details.pertest > summary { cursor: pointer; }
+details.pertest > summary h3 { display: inline; margin: 0; }
+details.checks ul { margin: 4px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
 details.step { border-top: 1px solid var(--line); padding: 4px 0; }
 details.step > summary { cursor: pointer; font-size: 13px; overflow-wrap: anywhere; }
 details.step .body { padding: 6px 0 6px 12px; display: grid; gap: 8px; }
@@ -188,36 +191,15 @@ footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
 </section>
 {% endif %}
 
-{% if many %}
-<nav class="card toc">
-  <h3>{{ n_found }} of {{ culprits|length }} checks bisected to a step</h3>
-  <ul>
-  {% for c in culprits %}
-    <li><a href="#{{ c.anchor }}"><code>{{ c.label }}</code></a>
-      {% if c.found %}broke at step {{ c.decisive_step }}{% else %}not bisectable{% endif %}</li>
-  {% endfor %}
-  </ul>
-</nav>
-{% endif %}
-
-{% for c in culprits %}
-<section id="{{ c.anchor }}">
-{% if c.found %}
-  <div class="card banner">
-    <p class="big">{{ c.sentences[0] }}</p>
-    {% for s in c.sentences[1:] %}<p>{{ s }}</p>{% endfor %}
-    <p class="note">Check: <code>{{ c.check }}</code></p>
-    {% if c.ground_truth %}
-    <p class="truth {{ 'ok' if c.ground_truth_ok else 'bad' }}">Ground truth: {{ c.ground_truth }}
-      {{ 'Bisect found the same step.' if c.ground_truth_ok else 'Bisect found a different step.' }}</p>
-    {% endif %}
+{% macro stats(c) %}
     <div class="stats">
       <div class="stat"><div class="k">Decisive step</div><div class="v">{{ c.decisive_step }}</div></div>
       {% if c.analysis %}
       <div class="stat"><div class="k">Noticed at</div>
-        <div class="v">{% if c.analysis.censored %}never{% else %}{{ c.analysis.t_obs }}{% endif %}</div></div>
+        <div class="v">{% if c.analysis.censored %}{{ 'n/a' if c.analysis.steps_after_err == 0 else 'never' }}{% else %}{{ c.analysis.t_obs }}{% endif %}</div></div>
       <div class="stat"><div class="k">Detection lag</div>
-        <div class="v">{% if c.analysis.censored %}censored <small>(&ge; {{ c.analysis.steps_after_err }} steps)</small>
+        <div class="v">{% if c.analysis.censored and c.analysis.steps_after_err == 0 %}n/a <small>(last step)</small>
+          {% elif c.analysis.censored %}censored <small>(&ge; {{ c.analysis.steps_after_err }} steps)</small>
           {% else %}{{ c.analysis.lag }} <small>{{ 'step' if c.analysis.lag == 1 else 'steps' }}</small>{% endif %}</div></div>
       <div class="stat"><div class="k">Wasted tokens</div>
         <div class="v" title="{{ c.analysis.wasted_tokens_exact }}">{{ c.analysis.wasted_tokens }}
@@ -231,13 +213,9 @@ footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
     {% if c.analysis and c.analysis.signal %}
     <p class="note">Failure signal the agent saw: <code>{{ c.analysis.signal }}</code></p>
     {% endif %}
-    {% if c.non_monotone %}
-    <p class="note alert">Non-monotone history: the check flipped between pass and fail. Pass to fail
-      at steps {{ c.transitions|join(', ') }}. The decisive step is the last one, because the final
-      state still carries that break.</p>
-    {% endif %}
-  </div>
+{% endmacro %}
 
+{% macro timeline(c) %}
   <div class="card">
     <h3>Timeline</h3>
     <div class="legend">
@@ -269,39 +247,9 @@ footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
       {% endfor %}
     </ol>
   </div>
+{% endmacro %}
 
-  <div class="card">
-    <h3>Culprit diff: step {{ c.decisive_step }}</h3>
-    {% if c.diff %}
-    <pre class="diff"><code>{% for line in c.diff %}<span class="{{ line.cls }}">{{ line.text }}</span>{% endfor %}</code></pre>
-    {% if c.diff_truncated %}<p class="note">Diff clipped to the first lines.</p>{% endif %}
-    {% else %}
-    <p class="note">No file changes in this step's snapshot, or the shadow repo is not available.</p>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h3>What the agent said before step {{ c.decisive_step }}</h3>
-    {% if c.reasoning %}<pre class="wrap">{{ c.reasoning }}</pre>
-    {% else %}<p class="note">The trace has no reasoning text for this step.</p>{% endif %}
-  </div>
-
-  {% if c.oracle_tail %}
-  <div class="card">
-    <h3>Oracle output at step {{ c.oracle_tail_step }} (last lines)</h3>
-    <pre class="wrap">{{ c.oracle_tail }}</pre>
-  </div>
-  {% endif %}
-{% else %}
-  <div class="card banner warn">
-    <p class="big">Not bisectable: <code>{{ c.label }}</code></p>
-    <p>{{ c.reason or 'No reason recorded.' }}</p>
-    <p class="note">Check: <code>{{ c.check }}</code></p>
-  </div>
-{% endif %}
-
-  <div class="card">
-    <h3>Probe log</h3>
+{% macro probe_log(c) %}
     {% if c.probes %}
     <div class="tablewrap">
     <table>
@@ -321,13 +269,116 @@ footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
       {% if c.policy_rule %}Oracle rule: {{ c.policy_rule }} (assumed flip rate {{ c.flake_rate }}).{% endif %}
       {% if c.non_monotone %}<strong>The history was non-monotone</strong>: the check flipped back and forth.{% else %}No sign of a non-monotone history.{% endif %}
     </p>
+{% endmacro %}
+
+{% if many %}
+<nav class="card toc">
+  <h3>{{ n_found }} of {{ culprits|length }} checks bisected to a step</h3>
+  <ul>
+  {% for g in groups %}
+    <li><a href="#{{ g.anchor }}">{% if g.multi %}{{ g.members|length }} tests{% else %}<code>{{ g.label }}</code>{% endif %}</a>
+      {% if g.found %}broke at step {{ g.decisive_step }}{% else %}not bisectable{% endif %}</li>
+  {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+{% for g in groups %}
+{% set c = g.primary %}
+<section id="{{ g.anchor }}">
+{% if g.found %}
+  <div class="card banner">
+    <p class="big">{{ g.sentences[0] }}</p>
+    {% for s in g.sentences[1:] %}<p>{{ s }}</p>{% endfor %}
+    {% if g.multi %}
+    <details class="checks"><summary class="note">Checks ({{ g.members|length }})</summary>
+      <ul>{% for m in g.members %}<li><code>{{ m.check }}</code></li>{% endfor %}</ul>
+    </details>
+    {% else %}
+    <p class="note">Check: <code>{{ c.check }}</code></p>
+    {% endif %}
+    {% if c.ground_truth %}
+    <p class="truth {{ 'ok' if c.ground_truth_ok else 'bad' }}">Ground truth: {{ c.ground_truth }}
+      {{ 'Bisect found the same step.' if c.ground_truth_ok else 'Bisect found a different step.' }}</p>
+    {% endif %}
+    {% if g.shared or not g.multi %}{{ stats(c) }}{% else %}
+    <div class="stats"><div class="stat"><div class="k">Decisive step</div><div class="v">{{ c.decisive_step }}</div></div></div>
+    {% endif %}
+    {% for m in g.members %}{% if m.non_monotone %}
+    <p class="note alert">{% if g.multi %}<code>{{ m.label }}</code>: {% endif %}Non-monotone history: the check flipped between pass and fail. Pass to fail
+      at steps {{ m.transitions|join(', ') }}. The decisive step is the last one, because the final
+      state still carries that break.</p>
+    {% endif %}{% endfor %}
   </div>
 
-  {% if c.explanation %}
+  {% if g.shared or not g.multi %}{{ timeline(c) }}{% endif %}
+
+  <div class="card">
+    <h3>Culprit diff: step {{ c.decisive_step }}</h3>
+    {% if c.diff %}
+    <pre class="diff"><code>{% for line in c.diff %}<span class="{{ line.cls }}">{{ line.text }}</span>{% endfor %}</code></pre>
+    {% if c.diff_truncated %}<p class="note">Diff clipped to the first lines.</p>{% endif %}
+    {% else %}
+    <p class="note">No file changes in this step's snapshot, or the shadow repo is not available.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>What the agent said before step {{ c.decisive_step }}</h3>
+    {% if c.reasoning %}<pre class="wrap">{{ c.reasoning }}</pre>
+    {% else %}<p class="note">The trace has no reasoning text for this step.</p>{% endif %}
+  </div>
+
+  {% if not g.multi and c.oracle_tail %}
+  <div class="card">
+    <h3>Oracle output at step {{ c.oracle_tail_step }} (last lines)</h3>
+    <pre class="wrap">{{ c.oracle_tail }}</pre>
+  </div>
+  {% endif %}
+{% else %}
+  <div class="card banner warn">
+    <p class="big">Not bisectable: <code>{{ c.label }}</code></p>
+    <p>{{ c.reason or 'No reason recorded.' }}</p>
+    <p class="note">Check: <code>{{ c.check }}</code></p>
+  </div>
+{% endif %}
+
+{% if g.multi %}
+  <details class="card pertest">
+    <summary><h3>Per-test details ({{ g.members|length }} tests)</h3></summary>
+    {% for m in g.members %}
+    <details class="step" id="{{ m.anchor }}">
+      <summary><code>{{ m.label }}</code></summary>
+      <div class="body">
+        <p class="note">Check: <code>{{ m.check }}</code></p>
+        {% if not g.shared %}
+        {% for sentence in m.sentences %}<p>{{ sentence }}</p>{% endfor %}
+        {{ stats(m) }}
+        {{ timeline(m) }}
+        {% endif %}
+        {% if m.oracle_tail %}
+        <div><div class="cap">Oracle output at step {{ m.oracle_tail_step }} (last lines)</div>
+          <pre class="wrap">{{ m.oracle_tail }}</pre></div>
+        {% endif %}
+        <details class="step"><summary>Probe log</summary>
+          <div class="body">{{ probe_log(m) }}</div>
+        </details>
+      </div>
+    </details>
+    {% endfor %}
+  </details>
+{% else %}
+  <div class="card">
+    <h3>Probe log</h3>
+    {{ probe_log(c) }}
+  </div>
+{% endif %}
+
+  {% if g.explanation %}
   <div class="card ai">
     <h3>AI explanation</h3>
     <p class="note">Written by a language model to help you read the diff. It does not affect the verdict, and it can be wrong.</p>
-    <p class="aitext" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ c.explanation }}</p>
+    <p class="aitext" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ g.explanation }}</p>
   </div>
   {% endif %}
 </section>

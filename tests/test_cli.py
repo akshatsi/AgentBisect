@@ -685,3 +685,69 @@ def test_record_task_rejects_sabotage_flag(tmp_path: Path) -> None:
     result = invoke("record", "--task", "tasks/t01.yaml", "--sabotage", str(sab))
     assert result.exit_code != 0
     assert "works with --repo only" in result.output
+
+
+# --------------------------------------------------------------------------- grouped verdicts
+
+
+def _grouped_report(run: Path, steps: list[int], *, last_step: bool = False):
+    """One culprit per entry of ``steps``, each a different test broken at that step."""
+    from agentbisect.models import (
+        Analysis,
+        BisectResult,
+        BisectStatus,
+        CulpritReport,
+        RunReport,
+    )
+
+    culprits = []
+    for i, t in enumerate(steps):
+        check = CHECK.replace("test_add", f"test_n[{i}]")
+        analysis = Analysis(
+            t_err=t,
+            t_obs=None,
+            lag=None,
+            censored=True,
+            steps_after_err=0 if last_step else 10 - t,
+            wasted_tokens=0 if last_step else 5000,
+            total_tokens=20_000,
+        )
+        b = BisectResult(check=check, status=BisectStatus.FOUND, decisive_step=t)
+        culprits.append(CulpritReport(run_id="r", check=check, bisect=b, analysis=analysis))
+    return RunReport(run_id="r", checks=[c.check for c in culprits], culprits=culprits)
+
+
+def test_run_prints_one_box_for_culprits_at_the_same_step(
+    synthetic: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rep = _grouped_report(synthetic, [4, 4, 4])
+    monkeypatch.setattr("agentbisect.bisect.bisect_run", lambda *a, **k: rep)
+    result = invoke("run", "--trace", str(synthetic))
+    assert result.exit_code == 0, result.output
+    out = " ".join(result.output.split())
+    assert out.count("Verdict") == 1
+    assert "Step 4 (edit calc/__init__.py) broke 3 tests: test_n[0], test_n[1], test_n[2]." in out
+    assert out.count("The agent never noticed.") == 1
+
+
+def test_run_prints_one_box_per_decisive_step(
+    synthetic: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rep = _grouped_report(synthetic, [4, 6, 4])
+    monkeypatch.setattr("agentbisect.bisect.bisect_run", lambda *a, **k: rep)
+    result = invoke("run", "--trace", str(synthetic))
+    out = " ".join(result.output.split())
+    assert out.count("Verdict") == 2
+    assert "broke 2 tests: test_n[0], test_n[2]." in out
+    assert "broke test_n[1]." in out
+
+
+def test_run_says_when_the_break_was_the_last_step(
+    synthetic: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rep = _grouped_report(synthetic, [10], last_step=True)
+    monkeypatch.setattr("agentbisect.bisect.bisect_run", lambda *a, **k: rep)
+    out = " ".join(invoke("run", "--trace", str(synthetic)).output.split())
+    assert "This was the agent's last step, so it had no chance to see the failure." in out
+    assert "The run ended with the test broken." in out
+    assert "never noticed" not in out and "0 tokens" not in out

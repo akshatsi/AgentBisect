@@ -34,6 +34,7 @@ EXIT_OK = 0
 EXIT_NOTHING_FOUND = 1
 EXIT_USAGE = 2
 EXIT_SPEND_CAP = 3
+PROBE_LINES = 3  # probe lines printed for one group of tests that broke at the same step
 
 
 def _console() -> Console:
@@ -350,43 +351,73 @@ def _probe_line(culprit: CulpritReport) -> str:
     return "  ".join(parts)
 
 
-def _print_culprit(console: Console, culprit: CulpritReport, loaded: Trace, many: bool) -> None:
-    from agentbisect.report.text import check_label, verdict_sentences
+def _print_group(
+    console: Console,
+    group: list[CulpritReport],
+    loaded: Trace,
+    run_dir: Path,
+    many: bool,
+) -> None:
+    """One box per decisive step. Culprits that share a step share the box."""
+    from agentbisect.report.text import Shortener, check_label, group_verdict_sentences
 
-    b = culprit.bisect
-    label = check_label(culprit.check)
-    title = f"Verdict: {escape(label)}" if many else "Verdict"
+    first = group[0]
+    b = first.bisect
+    labels = [check_label(c.check) for c in group]
+    if not many:
+        title = "Verdict"
+    elif len(group) == 1:
+        title = f"Verdict: {escape(labels[0])}"
+    else:
+        title = f"Verdict: step {b.decisive_step}"
     if b.status is BisectStatus.FOUND and b.decisive_step is not None:
-        step = culprit.step
+        step = first.step
         if step is None and 1 <= b.decisive_step <= loaded.n:
             step = loaded.steps[b.decisive_step - 1]
-        sentences = verdict_sentences(culprit, step)
+        sentences = group_verdict_sentences(group, step, Shortener.for_run(loaded.meta, run_dir))
         body = f"[bold]{escape(sentences[0])}[/bold]"
         if len(sentences) > 1:
             body += "\n" + escape(" ".join(sentences[1:]))
-        if b.non_monotone:
-            steps = ", ".join(str(t) for t in b.transitions)
-            body += (
-                f"\n[yellow]Non-monotone history: pass to fail at steps {steps}. "
-                "The last one is the decisive step.[/yellow]"
-            )
+        for c, label in zip(group, labels, strict=True):
+            if c.bisect.non_monotone:
+                steps = ", ".join(str(t) for t in c.bisect.transitions)
+                who = f"{escape(label)}: " if len(group) > 1 else ""
+                body += (
+                    f"\n[yellow]{who}Non-monotone history: pass to fail at steps {steps}. "
+                    "The last one is the decisive step.[/yellow]"
+                )
         console.print(Panel(body, title=title, border_style="red", expand=False))
     else:
         reason = escape(b.reason or "no reason recorded")
-        body = f"[bold]Not bisectable:[/bold] {reason}\nCheck: {escape(culprit.check)}"
+        body = f"[bold]Not bisectable:[/bold] {reason}\nCheck: {escape(first.check)}"
         console.print(Panel(body, title=title, border_style="yellow", expand=False))
-    if b.probes:
-        conf = f", confidence {b.confidence * 100:.1f}%" if b.confidence is not None else ""
-        console.print(f"[dim]Probes ({b.n_probes}{conf}):[/dim] {_probe_line(culprit)}")
+    shown = [c for c in group if c.bisect.probes]
+    lines = {id(c): _probe_text(c) for c in shown}
+    if len(shown) > 1 and len(set(lines.values())) == 1:
+        console.print(f"[dim]Probes, same for all {len(shown)} tests {lines[id(shown[0])]}")
+        return
+    for c in shown[:PROBE_LINES]:
+        who = f" {escape(check_label(c.check))}" if len(group) > 1 else ""
+        console.print(f"[dim]Probes{who} {lines[id(c)]}")
+    if len(shown) > PROBE_LINES:
+        console.print(
+            f"[dim]Probe logs for {len(shown) - PROBE_LINES} more tests are in the report.[/dim]"
+        )
 
 
-def _print_repaired(console: Console, episode: RepairEpisode, loaded: Trace) -> None:
-    from agentbisect.report.text import repaired_sentences
+def _probe_text(culprit: CulpritReport) -> str:
+    b = culprit.bisect
+    conf = f", confidence {b.confidence * 100:.1f}%" if b.confidence is not None else ""
+    return f"({b.n_probes}{conf}):[/dim] {_probe_line(culprit)}"
+
+
+def _print_repaired(console: Console, episode: RepairEpisode, loaded: Trace, run_dir: Path) -> None:
+    from agentbisect.report.text import Shortener, repaired_sentences
 
     step = None
     if episode.t_err is not None and 1 <= episode.t_err <= loaded.n:
         step = loaded.steps[episode.t_err - 1]
-    sentences = repaired_sentences(episode, step)
+    sentences = repaired_sentences(episode, step, Shortener.for_run(loaded.meta, run_dir))
     body = f"[bold]{escape(sentences[0])}[/bold]"
     if len(sentences) > 1:
         body += "\n" + escape(" ".join(sentences[1:]))
@@ -406,7 +437,7 @@ def run(
     Exit code 0 if it found a decisive step or a break the agent fixed; 1 if it found neither.
     """
     from agentbisect.bisect import CAP_NOTE, bisect_run
-    from agentbisect.report.text import check_label
+    from agentbisect.report.text import check_label, group_by_step
 
     console = _console()
     trace = trace.resolve()  # the oracle runs in scratch dirs, so it needs an absolute path
@@ -435,11 +466,11 @@ def run(
                 expand=False,
             )
         )
-    many = len(run_report.culprits) > 1
-    for culprit in run_report.culprits:
-        _print_culprit(console, culprit, loaded, many)
+    groups = group_by_step(run_report.culprits)
+    for group in groups:
+        _print_group(console, group, loaded, trace, len(groups) > 1)
     for episode in run_report.repaired:
-        _print_repaired(console, episode, loaded)
+        _print_repaired(console, episode, loaded, trace)
     for one in run_report.checks:
         if one.endswith(CAP_NOTE):
             label = check_label(one[: -len(CAP_NOTE)])
@@ -467,6 +498,7 @@ def _add_explanations(console: Console, trace: Path, model: str | None) -> None:
         console.print("[yellow]No AI explanation: explain.py is not available yet.[/yellow]")
         return
     from agentbisect.llm import create_client
+    from agentbisect.report.text import group_by_step
 
     try:
         client = create_client(model)
@@ -479,16 +511,24 @@ def _add_explanations(console: Console, trace: Path, model: str | None) -> None:
 
     run_report = RunReport.model_validate_json(path.read_text())
     changed = False
-    for culprit in run_report.culprits:
-        if culprit.bisect.status is not BisectStatus.FOUND or culprit.explanation:
+    for group in group_by_step(run_report.culprits):
+        # Culprits that share a step share one explanation: write it once, copy it to the rest.
+        if group[0].bisect.status is not BisectStatus.FOUND:
             continue
-        try:
-            culprit.explanation = explain(culprit, client)
-            changed = True
-        except Exception as e:
-            console.print(
-                f"[yellow]No AI explanation for {escape(culprit.check)}: {escape(str(e))}[/yellow]"
-            )
+        text = next((c.explanation for c in group if c.explanation), None)
+        if text is None:
+            try:
+                text = explain(group[0], client)
+            except Exception as e:
+                console.print(
+                    f"[yellow]No AI explanation for {escape(group[0].check)}: "
+                    f"{escape(str(e))}[/yellow]"
+                )
+                continue
+        for culprit in group:
+            if not culprit.explanation:
+                culprit.explanation = text
+                changed = True
     if changed:
         path.write_text(run_report.model_dump_json(indent=2))
 

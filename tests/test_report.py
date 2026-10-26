@@ -17,14 +17,20 @@ from agentbisect.models import (
     OracleRun,
     RepairEpisode,
     RunReport,
+    Step,
+    ToolKind,
     Trace,
+    TraceMeta,
+    TraceSource,
 )
 from agentbisect.report.render import classify_diff, render_report
 from agentbisect.report.text import (
+    Shortener,
     check_label,
     fmt_percent,
     fmt_tokens,
     repaired_sentences,
+    step_label,
     verdict_sentences,
 )
 from agentbisect.synthetic import make_synthetic_run, pytest_failure_output
@@ -239,17 +245,115 @@ def test_not_bisectable_explains_why(run_copy: Path) -> None:
     assert "Timeline" not in page
 
 
-def test_multiple_culprits_get_one_section_each(run_copy: Path) -> None:
+def _sibling(rep: RunReport, name: str, step: int | None = None) -> CulpritReport:
+    """A copy of the first culprit for another test, optionally broken at a different step."""
+    sib = rep.culprits[0].model_copy(deep=True)
+    sib.check = f"python -m pytest -q tests/test_calc.py::{name}"
+    if step is not None:
+        sib.bisect.decisive_step = step
+        assert sib.analysis is not None
+        sib.analysis = sib.analysis.model_copy(
+            update={"t_err": step, "steps_after_err": N - step, "t_obs": OBSERVE_AT, "lag": 1}
+        )
+        sib.step = None
+        sib.diff = ""
+    rep.culprits.append(sib)
+    return sib
+
+
+def test_culprits_at_different_steps_get_one_section_each(run_copy: Path) -> None:
     rep = load_report(run_copy)
-    second = rep.culprits[0].model_copy(deep=True)
-    second.check = "python -m pytest -q tests/test_calc.py::test_other"
-    rep.culprits.append(second)
+    _sibling(rep, "test_other", step=6)
     save_report(run_copy, rep)
     page = html_of(run_copy)
     assert page.count('<section id="culprit-') == 2
     assert 'id="culprit-1"' in page and 'id="culprit-2"' in page
     assert "test_other" in page
     assert "2 of 2 checks bisected" in page
+    assert "Per-test details" not in page
+
+
+def test_culprits_at_the_same_step_share_one_verdict(run_copy: Path) -> None:
+    rep = load_report(run_copy)
+    _sibling(rep, "test_b")
+    _sibling(rep, "test_c")
+    save_report(run_copy, rep)
+    page = html_of(run_copy)
+    assert page.count('<section id="culprit-') == 1
+    assert (
+        f"Step {BREAK_AT} (edit calc/__init__.py) broke 3 tests: test_add, test_b, test_c." in page
+    )
+    assert page.count("The agent only noticed at step") == 1  # same analysis: said once
+    assert "Per-test details (3 tests)" in page
+    # a probe log and a collapsed section for each test, and one diff for the group
+    assert page.count("<summary>Probe log</summary>") == 3
+    assert page.count("Culprit diff: step") == 1
+    for anchor in ("culprit-1", "culprit-2", "culprit-3"):
+        assert f'id="{anchor}"' in page
+
+
+def test_group_lists_five_tests_then_counts_the_rest(run_copy: Path) -> None:
+    rep = load_report(run_copy)
+    for i in range(6):
+        _sibling(rep, f"test_x{i}")
+    save_report(run_copy, rep)
+    page = html_of(run_copy)
+    assert "broke 7 tests: test_add, test_x0, test_x1, test_x2, test_x3, and 2 more." in page
+
+
+def test_group_with_different_lags_says_so_per_test(run_copy: Path) -> None:
+    rep = load_report(run_copy)
+    sib = _sibling(rep, "test_b")
+    assert sib.analysis is not None
+    sib.analysis = sib.analysis.model_copy(update={"t_obs": 9, "lag": 5})
+    save_report(run_copy, rep)
+    page = html_of(run_copy)
+    assert "broke 2 tests: test_add, test_b." in page
+    assert "test_add: The agent only noticed at step 7" in page
+    assert "test_b: The agent only noticed at step 9" in page
+
+
+def test_break_on_the_last_step_gets_its_own_wording(run_copy: Path) -> None:
+    rep = load_report(run_copy)
+    c = rep.culprits[0]
+    c.bisect.decisive_step = N
+    assert c.analysis is not None
+    c.analysis = c.analysis.model_copy(
+        update={
+            "t_err": N,
+            "t_obs": None,
+            "lag": None,
+            "censored": True,
+            "steps_after_err": 0,
+            "wasted_tokens": 0,
+            "observed_signal": None,
+        }
+    )
+    c.step = None
+    c.diff = ""
+    save_report(run_copy, rep)
+    page = html_of(run_copy)
+    assert "This was the agent&#39;s last step, so it had no chance to see the failure." in page
+    assert "The run ended with the test broken." in page
+    assert "never noticed" not in page and "0 more steps" not in page
+
+
+def test_censored_with_steps_left_keeps_the_old_wording() -> None:
+    b = BisectResult(check="pytest a.py::test_x", status=BisectStatus.FOUND, decisive_step=5)
+    a = Analysis(
+        t_err=5,
+        t_obs=None,
+        lag=None,
+        censored=True,
+        steps_after_err=3,
+        wasted_tokens=900,
+        total_tokens=3000,
+    )
+    text = " ".join(
+        verdict_sentences(CulpritReport(run_id="r", check=b.check, bisect=b, analysis=a), None)
+    )
+    assert "The agent never noticed. It kept working for 3 more steps on a broken base" in text
+    assert "last step" not in text
 
 
 def test_non_monotone_note(run_copy: Path) -> None:
@@ -415,3 +519,63 @@ def test_repaired_episode_without_t_err_shows_reason(repaired_run: Path) -> None
     page = html_of(repaired_run)
     assert "Step that broke it not found" in page
     assert "The base already failed &lt;b&gt;" in page
+
+
+# --------------------------------------------------------------------------- short step labels
+
+RUN = Path("/Users/me/runs/r1")
+
+
+def _meta() -> TraceMeta:
+    return TraceMeta(
+        run_id="r1",
+        source=TraceSource.ALAN_CODE,
+        workdir=RUN / "workdir",
+        base_snapshot="0" * 40,
+        python=RUN / "venv" / "bin" / "python",
+    )
+
+
+def _shell(command: str, **args: str) -> Step:
+    return Step(index=3, tool="bash", kind=ToolKind.SHELL, args={"command": command, **args})
+
+
+def test_shortener_drops_workdir_python_and_run_dir() -> None:
+    short = Shortener.for_run(_meta(), RUN)
+    cmd = f"'{RUN}/venv/bin/python' -m pytest {RUN}/workdir/tests/test_a.py -q"
+    assert short(cmd) == "python -m pytest tests/test_a.py -q"
+    assert short(f"cd {RUN}/workdir && ls {RUN}/other") == "cd . && ls <run>/other"
+    assert short(f"{RUN}/venv/bin/python -V") == "python -V"
+    spaced = Shortener.for_run(_meta().model_copy(update={"workdir": Path("/a b/run/workdir")}))
+    assert spaced("ls -R /a\\ b/run/workdir/src") == "ls -R src"
+    assert short("/usr/bin/python3 -V") == "/usr/bin/python3 -V"
+    assert short(f"{RUN}/workdir-old/x") == "<run>/workdir-old/x"
+
+
+def test_step_label_shortens_before_cutting_to_length() -> None:
+    short = Shortener.for_run(_meta(), RUN)
+    step = _shell(f"'{RUN}/venv/bin/python' -m pytest tests/test_filesize.py -q -x")
+    assert step_label(step, short) == "shell: python -m pytest tests/test_filesize.py -q -x"
+    assert RUN.as_posix() in step_label(step)  # without a shortener the label is unchanged
+    edit = Step(
+        index=4,
+        tool="edit",
+        kind=ToolKind.EDIT,
+        args={"path": f"{RUN}/workdir/src/humanize/filesize.py"},
+    )
+    assert step_label(edit, short) == "edit src/humanize/filesize.py"
+
+
+def test_report_shortens_labels_but_not_raw_output(run_copy: Path) -> None:
+    trace = Trace.load(run_copy)
+    workdir = trace.meta.workdir
+    py = run_copy / "venv" / "bin" / "python"
+    trace.meta = trace.meta.model_copy(update={"python": py})
+    step = trace.steps[1]
+    step.kind = ToolKind.SHELL
+    step.args = {"command": f"'{py}' -m pytest {workdir}/tests -q"}
+    step.output = f"raw output from {workdir}/tests/test_calc.py"
+    trace.save(run_copy)
+    page = html_of(run_copy)
+    assert "shell: python -m pytest tests -q" in page
+    assert f"raw output from {workdir}/tests/test_calc.py" in page

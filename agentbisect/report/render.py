@@ -28,10 +28,14 @@ from agentbisect.models import (
     Verdict,
 )
 from agentbisect.report.text import (
+    Shortener,
     check_label,
     fmt_percent,
     fmt_tokens,
+    group_by_step,
+    group_verdict_sentences,
     repaired_sentences,
+    shares_analysis,
     step_label,
 )
 
@@ -145,6 +149,28 @@ class CulpritView:
 
 
 @dataclass
+class GroupView:
+    """Culprits that share a decisive step. One verdict, with the per-test parts under it."""
+
+    anchor: str
+    found: bool
+    members: list[CulpritView]
+    sentences: list[str]
+    shared: bool
+    decisive_step: int | None
+    label: str
+    explanation: str | None = None
+
+    @property
+    def primary(self) -> CulpritView:
+        return self.members[0]
+
+    @property
+    def multi(self) -> bool:
+        return len(self.members) > 1
+
+
+@dataclass
 class EpisodeView:
     """One break the agent saw and fixed before the end of the run."""
 
@@ -211,7 +237,7 @@ def classify_diff(text: str) -> list[DiffLine]:
     return lines
 
 
-def _step_view(step: Step) -> StepView:
+def _step_view(step: Step, shorten: Shortener) -> StepView:
     args_text = json.dumps(step.args, indent=2, ensure_ascii=False, default=str)
     args_text, t1 = _clip(args_text)
     output, t2 = _clip(step.output or "")
@@ -219,7 +245,7 @@ def _step_view(step: Step) -> StepView:
         index=step.index,
         badge=KIND_BADGE.get(step.kind, "oth"),
         kind=step.kind.value,
-        label=step_label(step),
+        label=step_label(step, shorten),
         mutating=step.kind in MUTATING_KINDS,
         tokens=step.tokens,
         exit_code=step.exit_code,
@@ -266,7 +292,7 @@ def _oracle_tail(culprit: CulpritReport, n_steps: int) -> tuple[str | None, int 
     return run.output_tail, pick.step_index
 
 
-def _cells(trace: Trace, culprit: CulpritReport) -> list[Cell]:
+def _cells(trace: Trace, culprit: CulpritReport, shorten: Shortener) -> list[Cell]:
     b = culprit.bisect
     a = culprit.analysis
     t_err = b.decisive_step
@@ -303,7 +329,7 @@ def _cells(trace: Trace, culprit: CulpritReport) -> list[Cell]:
             classes.append("broken")
         if sabotage is not None and i == sabotage:
             classes.append("sabotage")
-        label = step_label(step)
+        label = step_label(step, shorten)
         cells.append(
             Cell(
                 index=i,
@@ -339,7 +365,14 @@ def _diff_for(culprit: CulpritReport, trace: Trace, run_dir: Path) -> str:
         return ""
 
 
-def _culprit_view(n: int, culprit: CulpritReport, trace: Trace, run_dir: Path) -> CulpritView:
+def _culprit_view(
+    n: int,
+    culprit: CulpritReport,
+    trace: Trace,
+    run_dir: Path,
+    shorten: Shortener,
+    diff_cache: dict[int, str],
+) -> CulpritView:
     from agentbisect.report.text import verdict_sentences
 
     b = culprit.bisect
@@ -370,8 +403,8 @@ def _culprit_view(n: int, culprit: CulpritReport, trace: Trace, run_dir: Path) -
     if not found:
         return view
 
-    view.step_label = step_label(step) if step else ""
-    view.sentences = verdict_sentences(culprit, step)
+    view.step_label = step_label(step, shorten) if step else ""
+    view.sentences = verdict_sentences(culprit, step, shorten)
     a = culprit.analysis
     if a is not None:
         view.analysis = {
@@ -387,8 +420,10 @@ def _culprit_view(n: int, culprit: CulpritReport, trace: Trace, run_dir: Path) -
             "share_pct": round(a.wasted_share * 100, 1),
             "signal": (a.observed_signal or "").strip().strip("_= ").strip() or a.observed_signal,
         }
-    view.cells = _cells(trace, culprit)
-    diff_text = _diff_for(culprit, trace, run_dir)
+    view.cells = _cells(trace, culprit, shorten)
+    if t not in diff_cache:  # culprits of one step share a diff: ask git once
+        diff_cache[t] = _diff_for(culprit, trace, run_dir)
+    diff_text = diff_cache[t]
     diff_lines = classify_diff(diff_text)
     if len(diff_lines) > MAX_DIFF_LINES:
         diff_lines = diff_lines[:MAX_DIFF_LINES]
@@ -410,7 +445,7 @@ def _tail_lines(text: str, limit: int = 40) -> str:
     return _clip("\n".join(lines))[0]
 
 
-def _episode_cells(trace: Trace, ep: RepairEpisode) -> list[Cell]:
+def _episode_cells(trace: Trace, ep: RepairEpisode, shorten: Shortener) -> list[Cell]:
     cells: list[Cell] = []
     for step in trace.steps:
         i = step.index
@@ -426,7 +461,7 @@ def _episode_cells(trace: Trace, ep: RepairEpisode) -> list[Cell]:
         if ep.t_err is not None and ep.t_err < i < ep.seen_at:
             notes.append("working on broken code")
             classes.append("fixbetween")
-        label = step_label(step)
+        label = step_label(step, shorten)
         cells.append(
             Cell(
                 index=i,
@@ -443,14 +478,16 @@ def _episode_cells(trace: Trace, ep: RepairEpisode) -> list[Cell]:
     return cells
 
 
-def _episode_view(n: int, ep: RepairEpisode, trace: Trace, run_dir: Path) -> EpisodeView:
+def _episode_view(
+    n: int, ep: RepairEpisode, trace: Trace, run_dir: Path, shorten: Shortener
+) -> EpisodeView:
     t = ep.t_err
     step = trace.steps[t - 1] if t is not None and 1 <= t <= trace.n else None
     view = EpisodeView(
         anchor=f"repaired-{n}",
         check=ep.check,
         label=check_label(ep.check),
-        sentences=repaired_sentences(ep, step),
+        sentences=repaired_sentences(ep, step, shorten),
         t_err=t,
         seen_at=ep.seen_at,
         reason=ep.reason,
@@ -458,13 +495,13 @@ def _episode_view(n: int, ep: RepairEpisode, trace: Trace, run_dir: Path) -> Epi
         tokens=fmt_tokens(ep.wasted_tokens) if ep.wasted_tokens is not None else None,
         tokens_exact=f"{ep.wasted_tokens:,}" if ep.wasted_tokens is not None else None,
     )
-    view.cells = _episode_cells(trace, ep)
+    view.cells = _episode_cells(trace, ep, shorten)
     if 1 <= ep.seen_at <= trace.n:
         out = trace.steps[ep.seen_at - 1].output or ""
         view.seen_output = _tail_lines(out) if out.strip() else None
     if step is None or t is None:
         return view
-    view.step_label = step_label(step)
+    view.step_label = step_label(step, shorten)
     view.reasoning = step.reasoning
     try:
         from agentbisect import snapshot
@@ -480,6 +517,29 @@ def _episode_view(n: int, ep: RepairEpisode, trace: Trace, run_dir: Path) -> Epi
     return view
 
 
+def _group_view(
+    group: list[CulpritReport], members: list[CulpritView], trace: Trace, shorten: Shortener
+) -> GroupView:
+    primary = members[0]
+    t = primary.decisive_step
+    sentences: list[str] = []
+    if primary.found and t is not None:
+        step = group[0].step or (trace.steps[t - 1] if 1 <= t <= trace.n else None)
+        sentences = group_verdict_sentences(group, step, shorten)
+    explanation = next((m.explanation for m in members if m.explanation), None)
+    label = primary.label if len(members) == 1 else f"{len(members)} tests"
+    return GroupView(
+        anchor=primary.anchor,
+        found=primary.found,
+        members=members,
+        sentences=sentences,
+        shared=shares_analysis(group),
+        decisive_step=t,
+        label=label,
+        explanation=explanation,
+    )
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -491,14 +551,23 @@ def build_context(run_dir: Path) -> dict[str, Any]:
     if bisect_path.exists():
         report = RunReport.model_validate_json(bisect_path.read_text())
 
+    m = trace.meta
+    shorten = Shortener.for_run(m, run_dir)
     culprits = report.culprits if report else []
-    views = [_culprit_view(i + 1, c, trace, run_dir) for i, c in enumerate(culprits)]
+    diff_cache: dict[int, str] = {}
+    views = [
+        _culprit_view(i + 1, c, trace, run_dir, shorten, diff_cache) for i, c in enumerate(culprits)
+    ]
     found = [v for v in views if v.found]
+    view_of = {id(c): v for c, v in zip(culprits, views, strict=True)}
+    groups = [
+        _group_view(group, [view_of[id(c)] for c in group], trace, shorten)
+        for group in group_by_step(culprits)
+    ]
     episodes = [
-        _episode_view(i + 1, e, trace, run_dir)
+        _episode_view(i + 1, e, trace, run_dir, shorten)
         for i, e in enumerate(report.repaired if report else [])
     ]
-    m = trace.meta
     return {
         "meta": m,
         "source_label": SOURCE_LABELS.get(m.source, m.source.value),
@@ -511,10 +580,11 @@ def build_context(run_dir: Path) -> dict[str, Any]:
         "has_bisect": report is not None,
         "auto_oracle": bool(report and report.auto_oracle),
         "culprits": views,
+        "groups": groups,
         "n_found": len(found),
-        "many": len(views) > 1,
+        "many": len(groups) > 1,
         "episodes": episodes,
-        "steps": [_step_view(s) for s in trace.steps],
+        "steps": [_step_view(s, shorten) for s in trace.steps],
     }
 
 
