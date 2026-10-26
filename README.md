@@ -59,6 +59,7 @@ Real recorded runs go in `runs/demo/` (added with the study). Run the same way:
 - A banner with the decisive step, the failing test, the lag (or "never noticed") and the tokens spent after the break.
 - A timeline of every step. The decisive step is red, the step where the agent first sees the failure is blue, and the steps between are shaded as "working on broken code".
 - The diff of the decisive step, the agent's own words just before it, and the test output.
+- A section "Breaks the agent caught and fixed", for runs where the agent broke a test, saw it fail and fixed it before the end: the breaking step with its diff, when the agent saw the failure, and the steps and tokens spent in between.
 - The probe log: which steps the bisect tested, how many runs each took, and how sure it is.
 - Optional "AI explanation" (`agentbisect report --explain`, needs credentials).
 

@@ -14,6 +14,7 @@ from rich.table import Table
 from agentbisect.models import (
     BisectStatus,
     CulpritReport,
+    RepairEpisode,
     RunReport,
     StudySummary,
     TaskSpec,
@@ -354,6 +355,19 @@ def _print_culprit(console: Console, culprit: CulpritReport, loaded: Trace, many
         console.print(f"[dim]Probes ({b.n_probes}{conf}):[/dim] {_probe_line(culprit)}")
 
 
+def _print_repaired(console: Console, episode: RepairEpisode, loaded: Trace) -> None:
+    from agentbisect.report.text import repaired_sentences
+
+    step = None
+    if episode.t_err is not None and 1 <= episode.t_err <= loaded.n:
+        step = loaded.steps[episode.t_err - 1]
+    sentences = repaired_sentences(episode, step)
+    body = f"[bold]{escape(sentences[0])}[/bold]"
+    if len(sentences) > 1:
+        body += "\n" + escape(" ".join(sentences[1:]))
+    console.print(Panel(body, title="Caught and fixed", border_style="green", expand=False))
+
+
 @app.command()
 def run(
     trace: Path = typer.Option(..., "--trace", help="Run directory, e.g. runs/<id>."),
@@ -362,8 +376,12 @@ def run(
     ),
     timeout: float = typer.Option(120.0, "--timeout", help="Seconds allowed per oracle run."),
 ) -> None:
-    """Bisect a recorded trace to find the decisive step."""
-    from agentbisect.bisect import bisect_run
+    """Bisect a recorded trace to find the decisive step.
+
+    Exit code 0 if it found a decisive step or a break the agent fixed; 1 if it found neither.
+    """
+    from agentbisect.bisect import CAP_NOTE, bisect_run
+    from agentbisect.report.text import check_label
 
     console = _console()
     trace = trace.resolve()  # the oracle runs in scratch dirs, so it needs an absolute path
@@ -383,7 +401,7 @@ def run(
     run_report = bisect_run(loaded, trace, check, timeout)
     (trace / "bisect.json").write_text(run_report.model_dump_json(indent=2))
 
-    if not run_report.culprits:
+    if not run_report.culprits and not run_report.repaired:
         console.print(
             Panel(
                 "No failing check to bisect. Nothing passed at the start and failed at the end.",
@@ -395,9 +413,15 @@ def run(
     many = len(run_report.culprits) > 1
     for culprit in run_report.culprits:
         _print_culprit(console, culprit, loaded, many)
+    for episode in run_report.repaired:
+        _print_repaired(console, episode, loaded)
+    for one in run_report.checks:
+        if one.endswith(CAP_NOTE):
+            label = check_label(one[: -len(CAP_NOTE)])
+            console.print(f"[yellow]{escape(label)}: not bisected (cap)[/yellow]")
     console.print(f"Wrote {escape(str(trace / 'bisect.json'))}")
     n_found = sum(1 for c in run_report.culprits if c.bisect.status is BisectStatus.FOUND)
-    if n_found:
+    if n_found or run_report.repaired:
         console.print(f"Next: agentbisect report --trace {escape(shlex.quote(str(trace)))}")
         return
     raise typer.Exit(EXIT_NOTHING_FOUND)

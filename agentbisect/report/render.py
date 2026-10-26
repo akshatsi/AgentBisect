@@ -19,6 +19,7 @@ from agentbisect.models import (
     BisectStatus,
     CulpritReport,
     OracleResult,
+    RepairEpisode,
     RunReport,
     Step,
     ToolKind,
@@ -26,7 +27,13 @@ from agentbisect.models import (
     TraceSource,
     Verdict,
 )
-from agentbisect.report.text import check_label, fmt_percent, fmt_tokens, step_label
+from agentbisect.report.text import (
+    check_label,
+    fmt_percent,
+    fmt_tokens,
+    repaired_sentences,
+    step_label,
+)
 
 TEMPLATE_DIR = Path(__file__).parent
 TEMPLATE_NAME = "template.html.j2"
@@ -135,6 +142,28 @@ class CulpritView:
     ground_truth: str | None = None
     ground_truth_ok: bool | None = None
     explanation: str | None = None
+
+
+@dataclass
+class EpisodeView:
+    """One break the agent saw and fixed before the end of the run."""
+
+    anchor: str
+    check: str
+    label: str
+    sentences: list[str]
+    t_err: int | None
+    seen_at: int
+    reason: str | None
+    lag: int | None
+    tokens: str | None
+    tokens_exact: str | None
+    step_label: str = ""
+    cells: list[Cell] = field(default_factory=list)
+    diff: list[DiffLine] = field(default_factory=list)
+    diff_truncated: bool = False
+    reasoning: str | None = None
+    seen_output: str | None = None
 
 
 @dataclass
@@ -374,6 +403,83 @@ def _culprit_view(n: int, culprit: CulpritReport, trace: Trace, run_dir: Path) -
     return view
 
 
+def _tail_lines(text: str, limit: int = 40) -> str:
+    lines = text.rstrip().splitlines()
+    if len(lines) > limit:
+        lines = [f"... {len(lines) - limit} earlier lines left out", *lines[-limit:]]
+    return _clip("\n".join(lines))[0]
+
+
+def _episode_cells(trace: Trace, ep: RepairEpisode) -> list[Cell]:
+    cells: list[Cell] = []
+    for step in trace.steps:
+        i = step.index
+        mutating = step.kind in MUTATING_KINDS
+        notes = []
+        classes = [step.kind.value, "mut" if mutating else "ro"]
+        if ep.t_err is not None and i == ep.t_err:
+            notes.append("broke it, fixed later")
+            classes.append("fixbreak")
+        if i == ep.seen_at:
+            notes.append("agent sees the failure")
+            classes.append("fixseen")
+        if ep.t_err is not None and ep.t_err < i < ep.seen_at:
+            notes.append("working on broken code")
+            classes.append("fixbetween")
+        label = step_label(step)
+        cells.append(
+            Cell(
+                index=i,
+                kind=step.kind.value,
+                badge=KIND_BADGE.get(step.kind, "oth"),
+                label=label,
+                mutating=mutating,
+                tokens=step.tokens,
+                note="; ".join(notes),
+                classes=" ".join(classes),
+                title=f"Step {i}: {label}" + (f" ({'; '.join(notes)})" if notes else ""),
+            )
+        )
+    return cells
+
+
+def _episode_view(n: int, ep: RepairEpisode, trace: Trace, run_dir: Path) -> EpisodeView:
+    t = ep.t_err
+    step = trace.steps[t - 1] if t is not None and 1 <= t <= trace.n else None
+    view = EpisodeView(
+        anchor=f"repaired-{n}",
+        check=ep.check,
+        label=check_label(ep.check),
+        sentences=repaired_sentences(ep, step),
+        t_err=t,
+        seen_at=ep.seen_at,
+        reason=ep.reason,
+        lag=ep.lag,
+        tokens=fmt_tokens(ep.wasted_tokens) if ep.wasted_tokens is not None else None,
+        tokens_exact=f"{ep.wasted_tokens:,}" if ep.wasted_tokens is not None else None,
+    )
+    view.cells = _episode_cells(trace, ep)
+    if 1 <= ep.seen_at <= trace.n:
+        out = trace.steps[ep.seen_at - 1].output or ""
+        view.seen_output = _tail_lines(out) if out.strip() else None
+    if step is None or t is None:
+        return view
+    view.step_label = step_label(step)
+    view.reasoning = step.reasoning
+    try:
+        from agentbisect import snapshot
+
+        text = snapshot.diff(run_dir, trace.snapshot_at(t - 1), trace.snapshot_at(t))
+    except Exception:  # shadow repo missing or damaged: the section still renders without a diff
+        text = ""
+    lines = classify_diff(text)
+    if len(lines) > MAX_DIFF_LINES:
+        lines = lines[:MAX_DIFF_LINES]
+        view.diff_truncated = True
+    view.diff = lines
+    return view
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -388,6 +494,10 @@ def build_context(run_dir: Path) -> dict[str, Any]:
     culprits = report.culprits if report else []
     views = [_culprit_view(i + 1, c, trace, run_dir) for i, c in enumerate(culprits)]
     found = [v for v in views if v.found]
+    episodes = [
+        _episode_view(i + 1, e, trace, run_dir)
+        for i, e in enumerate(report.repaired if report else [])
+    ]
     m = trace.meta
     return {
         "meta": m,
@@ -403,6 +513,7 @@ def build_context(run_dir: Path) -> dict[str, Any]:
         "culprits": views,
         "n_found": len(found),
         "many": len(views) > 1,
+        "episodes": episodes,
         "steps": [_step_view(s) for s in trace.steps],
     }
 

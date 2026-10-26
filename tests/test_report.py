@@ -15,11 +15,18 @@ from agentbisect.models import (
     BisectStatus,
     CulpritReport,
     OracleRun,
+    RepairEpisode,
     RunReport,
     Trace,
 )
 from agentbisect.report.render import classify_diff, render_report
-from agentbisect.report.text import check_label, fmt_percent, fmt_tokens, verdict_sentences
+from agentbisect.report.text import (
+    check_label,
+    fmt_percent,
+    fmt_tokens,
+    repaired_sentences,
+    verdict_sentences,
+)
 from agentbisect.synthetic import make_synthetic_run, pytest_failure_output
 
 CHECK = "python -m pytest -q tests/test_calc.py::test_add"
@@ -342,3 +349,69 @@ def test_verdict_sentences_cover_lag_zero_and_censored() -> None:
     assert "41k tokens" in text and "41%" in text
     c.analysis = None
     assert verdict_sentences(c, None) == ["Step 9 broke test_x."]
+
+
+# --------------------------------------------------------------------------- repaired breaks
+
+
+@pytest.fixture
+def repaired_run(tmp_path: Path) -> Path:
+    """Break at step 4, seen at step 7, fixed at step 9; no culprit, one repaired episode."""
+    run = tmp_path / "run"
+    make_synthetic_run(run, n_steps=10, break_at=4, fix_at=9, observe_at=7)
+    episode = RepairEpisode(
+        run_id="r", check=CHECK, seen_at=7, t_err=4, lag=3, wasted_tokens=112_000
+    )
+    save_report(run, RunReport(run_id="r", checks=[CHECK], repaired=[episode]))
+    return run
+
+
+def test_repaired_sentences() -> None:
+    ep = RepairEpisode(run_id="r", check="pytest a.py::test_x", seen_at=13, t_err=9, lag=4)
+    ep.wasted_tokens = 112_000
+    assert repaired_sentences(ep, None) == [
+        "Step 9 broke test_x.",
+        "The agent saw it at step 13 and fixed it before the end.",
+        "4 steps and 112k tokens went into broken code first.",
+    ]
+    ep.lag, ep.seen_at = 0, 9
+    assert "saw it at once" in " ".join(repaired_sentences(ep, None))
+    lost = RepairEpisode(run_id="r", check=ep.check, seen_at=13, reason="no clean base.")
+    assert repaired_sentences(lost, None)[1] == (
+        "The step that broke it was not found: no clean base."
+    )
+
+
+def test_report_shows_repaired_section(repaired_run: Path) -> None:
+    page = html_of(repaired_run)
+    assert "The agent broke a test and fixed it" in page
+    assert "No culprit found" not in page
+    assert "Breaks the agent caught and fixed" in page
+    assert "Step 4 (edit calc/__init__.py) broke test_add." in page
+    assert "The agent saw it at step 7 and fixed it before the end." in page
+    assert "3 steps and 112k tokens went into broken code first." in page
+    assert '<span class="del">-    return a + b</span>' in page
+    assert '<span class="add">+    return a - b</span>' in page
+    assert "What the agent saw at step 7" in page
+    assert "E       assert -1 == 5" in page
+    assert re.search(r'<a role="listitem" class="[^"]*fixbreak[^"]*" href="#step-4"', page)
+    assert re.search(r'<a role="listitem" class="[^"]*fixseen[^"]*" href="#step-7"', page)
+    assert "broke it, fixed later" in page
+    assert "decisive step" not in page
+
+
+def test_repaired_section_escapes_untrusted_text(repaired_run: Path) -> None:
+    trace_file = repaired_run / "trace.jsonl"
+    text = trace_file.read_text().replace("E       assert -1 == 5", "<script>alert(1)</script>")
+    trace_file.write_text(text)
+    page = html_of(repaired_run)
+    assert "<script>alert(1)</script>" not in page
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+
+
+def test_repaired_episode_without_t_err_shows_reason(repaired_run: Path) -> None:
+    lost = RepairEpisode(run_id="r", check=CHECK, seen_at=7, reason="The base already failed <b>")
+    save_report(repaired_run, RunReport(run_id="r", checks=[CHECK], repaired=[lost]))
+    page = html_of(repaired_run)
+    assert "Step that broke it not found" in page
+    assert "The base already failed &lt;b&gt;" in page

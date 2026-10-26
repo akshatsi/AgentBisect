@@ -51,6 +51,7 @@ section.card, .card {
 }
 .banner { border-left: 6px solid var(--red); background: var(--red-bg); }
 .banner.warn { border-left-color: var(--amber); background: var(--amber-bg); }
+.banner.ok { border-left-color: var(--green); background: var(--green-bg); }
 .banner .big { font-size: 20px; font-weight: 650; margin: 0 0 6px; overflow-wrap: anywhere; }
 .banner p { margin: 4px 0; overflow-wrap: anywhere; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
@@ -74,6 +75,9 @@ section.card, .card {
 .strip a.broken { background: var(--shade); border-color: var(--amber); }
 .strip a.observed { background: var(--blue-bg); border: 2px solid var(--blue); color: var(--blue); }
 .strip a.decisive { background: var(--red); border-color: var(--red); color: #fff; font-weight: 700; }
+.strip a.fixbetween { background: var(--green-bg); border-color: var(--green); }
+.strip a.fixseen { background: var(--green-bg); border: 2px solid var(--green); color: var(--green); font-weight: 700; }
+.strip a.fixbreak { background: var(--green); border-color: var(--green); color: var(--panel); font-weight: 700; }
 .strip a.sabotage { outline: 2px dashed var(--amber); outline-offset: 1px; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .legend span::before {
@@ -84,6 +88,9 @@ section.card, .card {
 .legend .l-broken::before { background: var(--shade); border-color: var(--amber); }
 .legend .l-obs::before { border: 2px solid var(--blue); }
 .legend .l-dec::before { background: var(--red); border-color: var(--red); }
+.legend .l-fixbreak::before { background: var(--green); border-color: var(--green); }
+.legend .l-fixbetween::before { background: var(--green-bg); border-color: var(--green); }
+.legend .l-fixseen::before { border: 2px solid var(--green); background: var(--green-bg); }
 .legend .l-sab::before { border: 2px dashed var(--amber); }
 ol.rows { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 ol.rows li {
@@ -106,6 +113,7 @@ ol.rows a:hover { text-decoration: underline; }
 .tag.dec { background: var(--red); color: #fff; }
 .tag.obs { background: var(--blue); color: #fff; }
 .tag.brk { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber); }
+.tag.fix { background: var(--green-bg); color: var(--green); border: 1px solid var(--green); }
 .tag.sab { border: 1px dashed var(--amber); color: var(--amber); }
 .tag.prb { background: var(--code-bg); color: var(--muted); border: 1px solid var(--line); font-weight: 400; }
 pre {
@@ -166,6 +174,11 @@ footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
 <section class="card banner warn">
   <p class="big">Not bisected yet</p>
   <p>No <code>bisect.json</code> in this run. Run <code>agentbisect run --trace &lt;run dir&gt;</code> first, then build this report again.</p>
+</section>
+{% elif not culprits and episodes %}
+<section class="card banner ok">
+  <p class="big">{% if episodes|length == 1 %}The agent broke a test and fixed it{% else %}The agent broke {{ episodes|length }} tests and fixed them{% endif %}</p>
+  <p>The run ends with no failing check. Details are in the section "Breaks the agent caught and fixed" below.</p>
 </section>
 {% elif not culprits %}
 <section class="card banner warn">
@@ -319,6 +332,85 @@ footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
   {% endif %}
 </section>
 {% endfor %}
+
+{% if episodes %}
+<section id="repaired">
+  <h2>Breaks the agent caught and fixed</h2>
+  <p class="note">The agent broke a check, saw it fail in its own test run, and fixed it before the run ended. The end state passes, so the bisect found no culprit here.</p>
+  {% for e in episodes %}
+  <div class="card banner ok" id="{{ e.anchor }}">
+    <p class="big">{{ e.sentences[0] }}</p>
+    {% for s in e.sentences[1:] %}<p>{{ s }}</p>{% endfor %}
+    <p class="note">Check: <code>{{ e.check }}</code></p>
+    <div class="stats">
+      <div class="stat"><div class="k">Broke at step</div><div class="v">{{ e.t_err if e.t_err is not none else 'not found' }}</div></div>
+      <div class="stat"><div class="k">Seen at step</div><div class="v">{{ e.seen_at }}</div></div>
+      {% if e.lag is not none %}
+      <div class="stat"><div class="k">Detection lag</div><div class="v">{{ e.lag }} <small>{{ 'step' if e.lag == 1 else 'steps' }}</small></div></div>
+      {% endif %}
+      {% if e.tokens is not none %}
+      <div class="stat"><div class="k">Tokens in broken code</div><div class="v" title="{{ e.tokens_exact }}">{{ e.tokens }}</div></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Timeline</h3>
+    <div class="legend">
+      {% if e.t_err is not none %}<span class="l-fixbreak">broke it, fixed later</span>
+      <span class="l-fixbetween">working on broken code</span>{% endif %}
+      <span class="l-fixseen">agent sees the failure</span>
+    </div>
+    <div class="strip" role="list">
+      {% for cell in e.cells %}
+      <a role="listitem" class="{{ cell.classes }}" href="#step-{{ cell.index }}" title="{{ cell.title }}">{{ cell.index }}</a>
+      {% endfor %}
+    </div>
+    <ol class="rows">
+      {% for cell in e.cells if 'fixbreak' in cell.classes or 'fixseen' in cell.classes %}
+      <li class="mut">
+        <span class="n">{{ cell.index }}</span>
+        <span class="badge" title="{{ cell.kind }}">{{ cell.badge }}</span>
+        <span class="lbl"><a href="#step-{{ cell.index }}">{{ cell.label }}</a></span>
+        {% if 'fixbreak' in cell.classes %}<span class="tag fix">broke it, fixed later</span>{% endif %}
+        {% if 'fixseen' in cell.classes %}<span class="tag fix">agent sees failure</span>{% endif %}
+        <span class="note">{{ cell.tokens }} tok</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  {% if e.t_err is none %}
+  <div class="card banner warn">
+    <p class="big">Step that broke it not found</p>
+    <p>{{ e.reason or 'No reason recorded.' }}</p>
+  </div>
+  {% else %}
+  <div class="card">
+    <h3>Diff of the step that broke it: step {{ e.t_err }}</h3>
+    {% if e.diff %}
+    <pre class="diff"><code>{% for line in e.diff %}<span class="{{ line.cls }}">{{ line.text }}</span>{% endfor %}</code></pre>
+    {% if e.diff_truncated %}<p class="note">Diff clipped to the first lines.</p>{% endif %}
+    {% else %}
+    <p class="note">No file changes in this step's snapshot, or the shadow repo is not available.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>What the agent said before step {{ e.t_err }}</h3>
+    {% if e.reasoning %}<pre class="wrap">{{ e.reasoning }}</pre>
+    {% else %}<p class="note">The trace has no reasoning text for this step.</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>What the agent saw at step {{ e.seen_at }} (last lines of output)</h3>
+    {% if e.seen_output %}<pre class="wrap">{{ e.seen_output }}</pre>
+    {% else %}<p class="note">The trace has no output for this step.</p>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
 
 <section class="card" id="trace">
   <h3>Full trace</h3>

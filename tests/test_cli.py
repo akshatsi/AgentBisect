@@ -597,3 +597,60 @@ def test_study_without_the_study_module_exits_1(
     result = invoke("study", "--runs", str(study_runs))
     assert result.exit_code == 1
     assert "not available" in result.output
+
+
+# --------------------------------------------------------------------------- repaired breaks
+
+
+def _repaired_report(run: Path, *, cap: bool = False):
+    from agentbisect.bisect import CAP_NOTE
+    from agentbisect.models import RepairEpisode, RunReport
+
+    episode = RepairEpisode(
+        run_id="r", check=CHECK, seen_at=7, t_err=4, lag=3, wasted_tokens=112_000
+    )
+    checks = [CHECK] + ([CHECK.replace("test_add", "test_other") + CAP_NOTE] if cap else [])
+    return RunReport(run_id="r", checks=checks, repaired=[episode])
+
+
+def test_run_prints_repaired_episode_and_exits_0(
+    synthetic: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "agentbisect.bisect.bisect_run", lambda *a, **k: _repaired_report(synthetic)
+    )
+    result = invoke("run", "--trace", str(synthetic))
+    assert result.exit_code == 0, result.output
+    assert "Step 4 (edit calc/__init__.py) broke test_add." in result.output
+    assert "The agent saw it at step 7 and fixed it before the end." in result.output
+    assert "3 steps and 112k tokens went into broken code first." in result.output
+    assert "No failing check" not in result.output
+    assert "Next: agentbisect report" in result.output
+    data = json.loads((synthetic / "bisect.json").read_text())
+    assert data["repaired"][0]["t_err"] == 4
+
+
+def test_run_shows_cap_checks_and_untraceable_episode(
+    synthetic: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rep = _repaired_report(synthetic, cap=True)
+    rep.repaired[0].t_err = None
+    rep.repaired[0].reason = "the base already failed"
+    monkeypatch.setattr("agentbisect.bisect.bisect_run", lambda *a, **k: rep)
+    result = invoke("run", "--trace", str(synthetic))
+    assert result.exit_code == 0, result.output
+    assert "test_other: not bisected (cap)" in result.output
+    assert "was not found: the base already failed" in result.output
+
+
+def test_run_nothing_at_all_keeps_old_message_and_exits_1(
+    synthetic: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agentbisect.models import RunReport
+
+    monkeypatch.setattr(
+        "agentbisect.bisect.bisect_run", lambda *a, **k: RunReport(run_id="r", checks=[])
+    )
+    result = invoke("run", "--trace", str(synthetic))
+    assert result.exit_code == 1
+    assert "No failing check to bisect" in result.output

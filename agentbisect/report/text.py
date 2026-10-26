@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shlex
 
-from agentbisect.models import CulpritReport, Step
+from agentbisect.models import CulpritReport, RepairEpisode, Step
 
 
 def fmt_tokens(n: int) -> str:
@@ -77,4 +77,37 @@ def verdict_sentences(culprit: CulpritReport, step: Step | None) -> list[str]:
             f"It spent {fmt_tokens(a.wasted_tokens)} tokens after the break "
             f"({fmt_percent(a.wasted_share)} of the run)."
         )
+    return out
+
+
+def _steps(n: int) -> str:
+    return f"{n} {'step' if n == 1 else 'steps'}"
+
+
+def repaired_sentences(episode: RepairEpisode, step: Step | None) -> list[str]:
+    """Plain-text sentences for a break the agent saw and fixed before the end of the run."""
+    label = check_label(episode.check)
+    if episode.t_err is None:
+        out = [f"The agent saw {label} fail at step {episode.seen_at} and fixed it before the end."]
+        reason = (episode.reason or "no reason recorded").rstrip(". ")
+        out.append(f"The step that broke it was not found: {reason}.")
+        return out
+    what = f"Step {episode.t_err}"
+    if step is not None:
+        what += f" ({step_label(step)})"
+    out = [f"{what} broke {label}."]
+    if episode.seen_at == episode.t_err:
+        out.append(
+            f"The agent saw it at once, at step {episode.seen_at}, and fixed it before the end."
+        )
+    else:
+        out.append(f"The agent saw it at step {episode.seen_at} and fixed it before the end.")
+    lag = episode.lag if episode.lag is not None else episode.seen_at - episode.t_err
+    if episode.wasted_tokens is not None and lag > 0:
+        out.append(
+            f"{_steps(lag)} and {fmt_tokens(episode.wasted_tokens)} tokens "
+            "went into broken code first."
+        )
+    elif lag > 0:
+        out.append(f"{_steps(lag)} went into broken code first.")
     return out
