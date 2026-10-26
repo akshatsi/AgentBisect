@@ -24,3 +24,5 @@ One line per non-obvious choice: date, decision, reason.
 - 2026-10-26 · Tokens of one model request go to its first tool call only, in every recorder. `tokens_in` includes cache read and write.
 - 2026-10-26 · Alan Code runs fall back to rebuilding steps from `events.jsonl` with one final snapshot if `tool.execute.after` never fires. Such runs are smoke tests, not study data. `agentbisect run` finalizes an Alan Code run first, in case the agent never went idle.
 - 2026-10-26 · `record()` re-raises `SpendCapExceeded` after saving the partial trace, so a batch stops when the cap is hit.
+- 2026-10-26 · Each Alan Code workdir gets its own git repo with one commit. The first real run showed the agent running `git status`, which walked up into the user's project repo. Snapshots exclude `.git`.
+- 2026-10-26 · First real Alan Code run (t01, DeepSeek V4.1 Flash): per-call hooks fire, 21 steps each with a snapshot. Alan's events report cost 0, so cost per run is read from the Alan usage page, not the trace. One run used about 460k tokens, mostly re-sent context.

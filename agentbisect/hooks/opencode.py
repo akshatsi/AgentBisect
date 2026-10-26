@@ -49,6 +49,7 @@ import json
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import traceback
 from collections.abc import Iterator, Mapping
@@ -194,6 +195,21 @@ def agent_prompt(prompt: str) -> str:
     return prompt.rstrip().replace("`python -m pytest", f"`{python} -m pytest") + "\n"
 
 
+def _init_local_git(workdir: Path) -> None:
+    """Give the workdir its own git repo with one commit.
+
+    The workdir sits under the user's project, so without this an agent's ``git status`` or
+    ``git commit`` would walk up and act on the user's real repo. Snapshots exclude ``.git``.
+    """
+    env = snapshot._env()
+    for args in (
+        ["init", "-q"],
+        ["add", "-A"],
+        ["commit", "-q", "--no-verify", "-m", "task start"],
+    ):
+        subprocess.run(["git", *args], cwd=workdir, env=env, check=True, timeout=60)
+
+
 def prepare_opencode_run(
     task: TaskSpec,
     runs_dir: Path,
@@ -219,6 +235,7 @@ def prepare_opencode_run(
         workdir,
         ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", ".git", "*.pyc", ".opencode"),
     )
+    _init_local_git(workdir)
     base = snapshot.init_shadow(run_dir, workdir)
     meta = TraceMeta(
         run_id=run_id,
