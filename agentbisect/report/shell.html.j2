@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{ title }}</title>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem("agentbisect-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
+<style>
+{{ css }}
+</style>
+</head>
+<body>
+<div id="app"><p class="boot">Loading the report&hellip;</p></div>
+<noscript>
+{% block noscript %}{% endblock %}
+</noscript>
+<script type="application/json" id="data">{{ data_json }}</script>
+{% for s in scripts %}
+<script>
+{{ s }}
+</script>
+{% endfor %}
+</body>
+</html>

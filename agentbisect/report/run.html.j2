@@ -1,0 +1,32 @@
+{% extends "shell.html.j2" %}
+{% block noscript %}
+<style>#app { display: none; }</style>
+<main style="max-width: 860px; margin: 0 auto; padding: 16px; font-family: system-ui, sans-serif;">
+  <h1>AgentBisect report</h1>
+  <p>Run <code>{{ data.run.id }}</code>
+    {% if data.run.repo %} &middot; repo <code>{{ data.run.repo }}</code>
+    {% elif data.run.task %} &middot; task <code>{{ data.run.task }}</code>{% endif %}
+    {% if data.run.model %} &middot; model <code>{{ data.run.model }}</code>{% endif %}
+    &middot; recorded by {{ data.run.source }}</p>
+  <p>{{ data.run.n_steps }} steps ({{ data.run.n_mutating }} change the repo) &middot; {{ data.run.tokens }} tokens</p>
+  <p><strong>This report is interactive and needs JavaScript. The verdict and the steps are below as plain text.</strong></p>
+  {% if data.overview %}
+  <h2>{{ data.overview.title }}</h2>
+  <p>{{ data.overview.text }}</p>
+  {% endif %}
+  {% for g in data.groups %}
+  <h2>{{ g.sentences[0] if g.sentences else 'Not bisectable: ' ~ g.label }}</h2>
+  {% for s in g.sentences[1:] %}<p>{{ s }}</p>{% endfor %}
+  {% if not g.found %}<p>{{ g.members[0].reason or 'No reason recorded.' }}</p>{% endif %}
+  {% endfor %}
+  {% for e in data.episodes %}
+  <h2>{{ e.sentences[0] }}</h2>
+  {% for s in e.sentences[1:] %}<p>{{ s }}</p>{% endfor %}
+  {% endfor %}
+  <h2>Steps</h2>
+  <ol>
+    {% for s in data.steps %}<li>{{ s.label }} ({{ s.tokens }} tok)</li>
+    {% endfor %}
+  </ol>
+</main>
+{% endblock %}

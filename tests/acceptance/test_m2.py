@@ -434,6 +434,18 @@ def parse_html(text: str) -> Tags:
     return parser
 
 
+def page_data(html: str) -> dict:
+    """The JSON blob the report app draws, after checking it is the page's only data script."""
+    parsed = parse_html(html)
+    scripts = [attrs for tag, attrs in parsed.tags if tag == "script"]
+    assert all("src" not in attrs for attrs in scripts)  # inline code only
+    blobs = [a for a in scripts if a.get("type") == "application/json"]
+    assert len(blobs) == 1 and blobs[0].get("id") == "data"
+    blob = re.search(r'<script type="application/json" id="data">(.*?)</script>', html, re.S)
+    assert blob and "<" not in blob.group(1)  # nothing in it can close the element
+    return json.loads(blob.group(1))
+
+
 def assert_offline(html: str) -> None:
     parsed = parse_html(html)
     for tag, attrs in parsed.tags:
@@ -465,27 +477,27 @@ def test_c3_report_is_offline_and_shows_verdict_timeline_diff(tmp_path: Path) ->
     html = out.read_text()
     assert html.lstrip().lower().startswith("<!doctype html")
     assert_offline(html)
-    parsed = parse_html(html)
-    assert len(parsed.scripts) == 1  # only the page's own inline script
-    # Verdict banner: the decisive step, the test and the lag from bisect.json.
+    page = page_data(html)  # the report is an app: its data is one JSON blob
+    # Verdict: the decisive step, the test and the lag from bisect.json.
     culprit = bisect_json(run)["culprits"][0]
     t_err, t_obs = culprit["analysis"]["t_err"], culprit["analysis"]["t_obs"]
     assert (t_err, t_obs) == (8, 11)
-    banner = re.search(r'class="[^"]*banner[^"]*"', html)
-    assert banner, "no verdict banner"
-    assert f"Step {t_err}" in html and "test_add_duplicate_raises" in html
-    assert f"step {t_obs}" in html
-    assert re.search(r"broke test_add_duplicate_raises", html)
-    # Timeline: one entry per step, the decisive one marked.
-    assert "Timeline" in html
+    group = page["groups"][0]
+    assert group["found"] and group["decisive"] == t_err
+    assert group["sentences"][0].startswith(f"Step {t_err}")
+    assert "broke test_add_duplicate_raises" in group["sentences"][0]
+    assert f"step {t_obs}" in " ".join(group["sentences"])
+    assert f"Step {t_err}" in html and "test_add_duplicate_raises" in html  # also as plain text
+    # Replay and strip: one entry per step, the probes of the bisect, the decisive step marked.
     n_steps = len(read_trace_raw(run))
-    links = [a for t, a in parsed.tags if t == "a" and (a.get("href") or "").startswith("#")]
-    assert len(links) >= n_steps
-    assert re.search(r'class="[^"]*decisive[^"]*"', html)
+    assert len(page["steps"]) == n_steps
+    frames = group["members"][0]["replay"]["frames"]
+    assert [f["step"] for f in frames] == [p["step_index"] for p in culprit["bisect"]["probes"]]
+    assert frames[-1]["lo"] == t_err - 1 and frames[-1]["hi"] == t_err
     # Diff of the decisive step.
-    assert re.search(r'<pre class="diff">', html)
-    assert "shop/catalog.py" in html
-    assert re.search(r'<span class="del">-\s+if product\.sku in self\._products:', html)
+    diff = page["steps"][t_err - 1]["diff"]
+    assert "shop/catalog.py" in diff
+    assert re.search(r"\n-\s+if product\.sku in self\._products:", diff)
     # The report states that the verdict does not come from an LLM.
     assert "No language model decides pass or fail" in html
 
@@ -529,13 +541,18 @@ def test_c3_trace_content_is_escaped(tmp_path: Path) -> None:
     assert "<script>alert(" not in html
     assert "<img" not in html  # only the escaped "&lt;img" form may appear
     parsed = parse_html(html)
-    assert len(parsed.scripts) == 1, parsed.scripts  # still only the report's own script
-    assert "XSS" not in parsed.scripts[0]
+    page = page_data(html)
+    code = [s for s in parsed.scripts if not s.lstrip().startswith("{")]  # the page's own scripts
+    assert code and all("XSS" not in s for s in code)  # run text never reaches script code
     assert all(t != "img" for t, _ in parsed.tags)
     assert all(not k.startswith("on") for _, attrs in parsed.tags for k in attrs)
-    assert "&lt;script&gt;" in html  # shown as text instead
-    # The diff and the step output both made it in, escaped.
-    assert html.count("&lt;script&gt;") >= 4
+    # It travels as escaped data, which the app draws as text: step output, reasoning, args, the
+    # diff and the explanation all made it in.
+    assert html.count("\\u003cscript\\u003e") >= 4
+    text = json.dumps(page)
+    assert text.count("<script>alert(") >= 4
+    assert page["groups"][0]["explanation"]["text"].startswith("<script>alert(")
+    assert "XSS-diff" in page["steps"][4]["diff"]
     assert_offline(html)
 
 
