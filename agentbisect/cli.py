@@ -34,7 +34,71 @@ def run(
     ),
 ) -> None:
     """Bisect a recorded trace to find the decisive step."""
-    _todo("run")
+    from rich.console import Console
+    from rich.table import Table
+
+    from agentbisect import snapshot
+    from agentbisect.bisect import bisect, describe_step
+    from agentbisect.models import (
+        BisectStatus,
+        CulpritReport,
+        OracleConfig,
+        RunReport,
+        Trace,
+    )
+    from agentbisect.oracle import count_runs
+
+    console = Console()
+    if check is None:
+        console.print("Auto-oracle (bisecting every newly failing test) comes in M2. Pass --check.")
+        raise typer.Exit(2)
+    if not (trace / "meta.json").exists():
+        console.print(f"[red]No trace found in {trace}[/red] (expected meta.json and trace.jsonl).")
+        raise typer.Exit(2)
+
+    loaded = Trace.load(trace)
+    result = bisect(loaded, trace, OracleConfig(check=check))
+
+    culprit = CulpritReport(run_id=loaded.meta.run_id, check=check, bisect=result)
+    if result.status is BisectStatus.FOUND and result.decisive_step is not None:
+        step = loaded.steps[result.decisive_step - 1]
+        culprit.step = step
+        culprit.diff = snapshot.diff(
+            trace,
+            loaded.snapshot_at(result.decisive_step - 1),
+            loaded.snapshot_at(result.decisive_step),
+        )
+    report_ = RunReport(run_id=loaded.meta.run_id, checks=[check], culprits=[culprit])
+    (trace / "bisect.json").write_text(report_.model_dump_json(indent=2))
+
+    if culprit.step is not None:
+        console.print(
+            f"[bold green]Step {culprit.step.index}[/bold green] "
+            f"({describe_step(culprit.step)}) broke [bold]{check}[/bold]. "
+            f"{result.n_probes} probes.",
+            soft_wrap=True,
+        )
+    else:
+        console.print(f"[bold red]Not bisectable:[/bold red] {result.reason}")
+
+    table = Table(title="Probe log", show_lines=False)
+    for col in ("#", "step", "verdict", "runs", "fails", "seconds"):
+        table.add_column(col)
+    for i, probe in enumerate(result.probes, 1):
+        seconds = sum(r.duration_s for r in probe.runs)
+        n_fail, n_counted, _ = count_runs(probe.runs)
+        table.add_row(
+            str(i),
+            str(probe.step_index),
+            probe.verdict.value,
+            str(probe.n_runs),
+            str(n_fail),
+            f"{seconds:.2f}",
+        )
+    console.print(table)
+    console.print(f"Wrote {trace / 'bisect.json'}")
+    if result.status is not BisectStatus.FOUND:
+        raise typer.Exit(1)
 
 
 @app.command()
