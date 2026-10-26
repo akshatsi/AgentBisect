@@ -323,6 +323,13 @@ history, the last transition, §3.1), the check command, and the culprit diff
   prefix, so it survives a different working directory. The **function name** is the last
   `::` part (`test_f`) and the **class-qualified name** is `TestC.test_f` (or `test_f` alone).
 - If the check names only files (no `::`), the key is each file's basename (`test_x.py`).
+- If the check names neither (e.g. `pytest -q`, the whole suite), the oracle is "the suite
+  passes", so a failure of *any* test is a failure of the oracle. Then P1 becomes "a line starting
+  with `FAILED ` or `ERROR `", P2 "any pytest failure header" (`^_{3,} \S.* _{3,}$`), and P3 any
+  `ERROR collecting` header. P4 and P5 are unchanged.
+- **A key matches only as a standalone token:** not preceded by a word character, `.` or `-`,
+  and not followed by a word character. So `test_f` does not match `test_f2`, and `test_x.py`
+  does not match `my_test_x.py`; `test_f[1]` still matches, because `[` is not a word character.
 - **Touched files:** `git diff --name-only` between the boundary snapshots, keeping `*.py`.
 
 ### 4.2 Failure signal
@@ -336,7 +343,7 @@ Step `s` shows a failure signal if **all** of these hold:
 | # | Pattern (Python regex, per line) | Example |
 |---|---|---|
 | P1 | `\b(FAILED\|ERROR)\b` and the line contains the key | `FAILED tests/test_auth.py::test_login - AssertionError` |
-| P2 | `^_{3,} (\S+\.)?{function}(\[.*\])? _{3,}$` (pytest's failure header; `{function}` regex-escaped, with the optional class prefix) | `______ TestAuth.test_login ______` |
+| P2 | `^_{3,} {qualified}(\[.*\])? _{3,}$` (pytest's failure header; `{qualified}` regex-escaped: `TestC.test_f` when the node ID has a class, else `test_f`. Exact, so `TestOther.test_f` does not match) | `______ TestAuth.test_login ______` |
 | P3 | `^_{3,} ERROR collecting \S*{file basename} _{3,}$` | `____ ERROR collecting tests/test_auth.py ____` |
 | P4 | `File "([^"]+)", line \d+` where the captured path ends with a touched file | `File "/w/src/auth/session.py", line 41, in login` |
 | P5 | `^(\S+\.py):\d+: ` where the captured path ends with a touched file | `src/auth/session.py:41: AssertionError` |
