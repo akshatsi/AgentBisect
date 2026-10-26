@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from agentbisect import stats
-from agentbisect.bisect import SUITE_CMD
+from agentbisect.bisect import SUITE_CMD, _covers, _window, find_episodes, pytest_run
 from agentbisect.models import (
     BisectResult,
     BisectStatus,
@@ -29,15 +29,7 @@ from agentbisect.models import (
     Trace,
     TraceSource,
 )
-from agentbisect.study import (
-    _covers,
-    _window,
-    collect,
-    find_episodes,
-    pytest_run,
-    summarize,
-    write,
-)
+from agentbisect.study import collect, summarize, write
 from agentbisect.synthetic import OBSERVE_CMD, make_synthetic_run, pytest_failure_output
 
 PER_STEP = 150
@@ -333,13 +325,40 @@ def test_unbisectable_episode_keeps_its_reason(tmp_path: Path) -> None:
     assert ep.reason and "does not fail" in ep.reason
 
 
-def test_sabotage_run_contributes_no_episodes(tmp_path: Path) -> None:
+def test_sabotage_run_still_has_episodes_but_the_lag_series_drops_them(tmp_path: Path) -> None:
     def seen(trace: Trace) -> None:
-        trace.meta.sabotage_step = 3
         as_pytest_step(trace, 5, fails_with=-1)
 
-    run = make_run(tmp_path, "s03-flash", task="s03", n_steps=8, break_at=3, mutate=seen)
-    assert find_episodes(Trace.load(run), run) == []
+    run = make_run(
+        tmp_path, "s03-flash", task="s03", n_steps=8, break_at=3, sabotage_step=3, mutate=seen
+    )
+    (ep,) = find_episodes(Trace.load(run), run)
+    assert (ep.t_err, ep.seen_at, ep.lag) == (3, 5, 2)
+    summary = summarize(collect(tmp_path))
+    assert [e.t_err for e in summary.episodes] == [3]
+    assert metric(summary, "Repaired-break episodes").value == 0
+
+
+def test_sabotage_accuracy_counts_a_seen_break_in_a_run_that_ends_green() -> None:
+    def sab_row(run_id: str) -> StudyRow:
+        return StudyRow(
+            run_id=run_id,
+            task_id="s03",
+            model="flash",
+            sabotage_step=4,
+            n_steps=9,
+            final_failed=False,
+            bisectable=False,
+        )
+
+    eps = [
+        RepairEpisode(run_id="s1", check="c", seen_at=7, t_err=4, lag=3),  # the injected step
+        RepairEpisode(run_id="s2", check="c", seen_at=7, t_err=6, lag=1),  # another step
+    ]
+    rows = [sab_row("s1"), sab_row("s2"), sab_row("s3")]  # s3: green, nothing seen: not rated
+    s = summarize(StudySummary(rows=rows, episodes=eps))
+    sab = metric(s, "Sabotage accuracy")
+    assert (sab.value, sab.n) == (0.5, 2)
 
 
 def test_episodes_of_sabotage_runs_are_not_counted() -> None:

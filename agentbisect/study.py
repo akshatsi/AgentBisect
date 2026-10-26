@@ -15,32 +15,25 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import re
-import shlex
 import statistics
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
 from agentbisect import stats
-from agentbisect.analyze import SignalMatcher
 from agentbisect.bisect import (
     SUITE_CMD,
-    bisect,
     bisect_run,
-    suite_outcomes,
+    find_episodes,
 )
 from agentbisect.hooks import opencode
 from agentbisect.models import (
     BisectStatus,
     Metric,
-    OracleConfig,
     RepairEpisode,
     RunReport,
-    Step,
     StudyRow,
     StudySummary,
-    ToolKind,
     Trace,
 )
 
@@ -220,194 +213,7 @@ def _rows(name: str, trace: Trace, report: RunReport) -> list[StudyRow]:
 
 
 # =========================================================================== repaired-break episodes
-
-_PYTEST_RUN = re.compile(r"(?:^|[\s/;&|(])(?:pytest|py\.test)(?=$|[\s;&|)])")
-_CMD_END = re.compile(r"&&|\|\||[;|]|\s\d?>")
-_VALUE_OPTS = frozenset(
-    [
-        "-p",
-        "-c",
-        "-o",
-        "-n",
-        "--rootdir",
-        "--tb",
-        "--maxfail",
-        "--ignore",
-        "--ignore-glob",
-        "--deselect",
-        "--junitxml",
-        "--durations",
-        "--basetemp",
-        "--import-mode",
-        "--confcutdir",
-        "--override-ini",
-    ]
-)
-_PARTIAL_OPTS = frozenset({"-m", "--lf", "--last-failed", "--sw", "--stepwise", "--ff"})
-
-
-def _command(step: Step) -> str:
-    args = step.args or {}
-    return str(args.get("command") or args.get("cmd") or "")
-
-
-def pytest_run(command: str) -> tuple[list[str], bool] | None:
-    """``(path arguments, partial)`` if ``command`` runs pytest, else None.
-
-    ``partial`` is True when a flag (``-k``, ``-m``, ``--lf``) means the run may skip tests that
-    its paths cover. Only the first pytest in the command is read, up to ``&&``, ``;`` or a pipe.
-    """
-    m = _PYTEST_RUN.search(command)
-    if m is None:
-        return None
-    rest = _CMD_END.split(command[m.end() :], maxsplit=1)[0]
-    try:
-        tokens = shlex.split(rest)
-    except ValueError:
-        tokens = rest.split()
-    targets: list[str] = []
-    partial = False
-    skip = False
-    for tok in tokens:
-        if skip:
-            skip = False
-        elif tok.startswith("-"):
-            if tok == "-k" or (tok.startswith("-k") and not tok.startswith("--")):
-                partial, skip = True, tok == "-k"
-            elif tok in _PARTIAL_OPTS:
-                partial, skip = True, tok == "-m"
-            elif tok in _VALUE_OPTS:
-                skip = True
-        else:
-            targets.append(tok)
-    return targets, partial
-
-
-def _covers(targets: list[str], partial: bool, node: str) -> bool:
-    """True if a pytest run with these path arguments runs the test ``node``."""
-    if partial:
-        return False
-    if not targets:
-        return True
-    file_part = node.split("::", 1)[0]
-    for raw in targets:
-        t = raw[2:] if raw.startswith("./") else raw
-        if t in ("", "."):
-            return True
-        if "::" in t:
-            if node == t or node.startswith((t + "::", t + "[")):
-                return True
-        else:
-            base = t.rstrip("/")
-            if file_part == base or file_part.startswith(base + "/"):
-                return True
-    return False
-
-
-def _could_show_failure(step: Step) -> bool:
-    if step.kind is not ToolKind.SHELL or step.exit_code == 0:
-        return False
-    return pytest_run(_command(step)) is not None
-
-
-class _Start:
-    """A test failure seen by the agent at ``k``, after the agent last saw it pass at ``last_pass``."""
-
-    def __init__(self, node: str, k: int, last_pass: int | None) -> None:
-        self.node, self.k, self.last_pass = node, k, last_pass
-
-
-def _episode_starts(trace: Trace, nodes: list[str]) -> list[_Start]:
-    """Streak starts per test (METHODS §8.4, simplest reading).
-
-    Walk the agent's pytest runs in order. A run whose output shows a §4.2 failure signal for a
-    test (checked with the test's own node ID, no touched files) starts an episode unless the
-    test was already failing at the agent's previous run that covered it. A covering run with no
-    signal means the test passed there; it ends the streak.
-    """
-    matchers: dict[str, SignalMatcher] = {}
-    failing: dict[str, bool] = defaultdict(bool)
-    last_pass: dict[str, int | None] = {}
-    starts: list[_Start] = []
-    for step in trace.steps:
-        if step.kind is not ToolKind.SHELL:
-            continue
-        run = pytest_run(_command(step))
-        if run is None:
-            continue
-        targets, partial = run
-        for node in nodes:
-            if node not in matchers:
-                matchers[node] = SignalMatcher(f"{SUITE_CMD} {shlex.quote(node)}", [])
-            if matchers[node].signal(step) is not None:
-                if not failing[node]:
-                    starts.append(_Start(node, step.index, last_pass.get(node)))
-                failing[node] = True
-            elif _covers(targets, partial, node):
-                if failing[node]:
-                    last_pass[node] = step.index
-                failing[node] = False
-    return starts
-
-
-def _window(trace: Trace, lo: int, hi: int) -> Trace:
-    """Steps ``lo+1..hi`` as a trace of their own, with ``S(lo)`` as its base (step 0).
-
-    ``window(trace, 0, k)`` is the trace cut to its first ``k`` steps. Indices shift down by
-    ``lo``; snapshots and tokens are untouched.
-    """
-    steps = [s.model_copy(update={"index": s.index - lo}) for s in trace.steps[lo:hi]]
-    meta = trace.meta.model_copy(update={"base_snapshot": trace.snapshot_at(lo)})
-    return Trace(meta=meta, steps=steps)
-
-
-def _bisect_episode(trace: Trace, run_dir: Path, start: _Start, timeout_s: float) -> RepairEpisode:
-    check = f"{SUITE_CMD} {shlex.quote(start.node)}"
-    config = OracleConfig(check=check, timeout_s=timeout_s)
-    episode = RepairEpisode(run_id=run_dir.name, check=check, seen_at=start.k)
-    # METHODS §8.4 bisects 0..k. If the agent saw this test pass earlier (at ``last_pass``), the
-    # history has a repaired break and plain bisect over 0..k could stop on the old one, so
-    # start at the last pass. If the oracle disagrees there, fall back to 0..k.
-    lows = [start.last_pass, 0] if start.last_pass else [0]
-    reason = None
-    for lo in lows:
-        result = bisect(_window(trace, lo, start.k), run_dir, config)
-        if result.status is BisectStatus.FOUND and result.decisive_step is not None:
-            t_err = lo + result.decisive_step
-            episode.t_err = t_err
-            episode.lag = start.k - t_err
-            episode.wasted_tokens = sum(s.tokens for s in trace.steps[t_err : start.k])
-            return episode
-        reason = result.reason
-    episode.reason = reason or "not bisectable"
-    return episode
-
-
-def find_episodes(trace: Trace, run_dir: Path, timeout_s: float = 120.0) -> list[RepairEpisode]:
-    """Repaired-break episodes of one run (METHODS §8.4).
-
-    For every test that passes at step 0 and fails in an agent pytest run at step ``k`` (see
-    ``_episode_starts``), bisect that test over steps ``0..k`` and return ``lag = k - t_err`` and
-    the tokens of steps ``t_err+1..k``. A sabotage run contributes no episodes (METHODS §8.4): the
-    injected break changes what the agent does afterwards. The suite runs at step 0 only if some
-    pytest step could show a failure.
-    """
-    run_dir = Path(run_dir).resolve()
-    if trace.meta.sabotage_step is not None:
-        return []
-    if not any(_could_show_failure(s) for s in trace.steps):
-        return []
-    outcomes, _problem = suite_outcomes(
-        run_dir, trace.meta.base_snapshot, timeout_s, python=trace.meta.python
-    )
-    nodes = [n for n, status in (outcomes or {}).items() if status == "PASSED" and "::" in n]
-    if not nodes:
-        return []
-    episodes = []
-    for start in _episode_starts(trace, nodes):
-        episodes.append(_bisect_episode(trace, run_dir, start, timeout_s))
-    episodes.sort(key=lambda e: (e.seen_at, e.check))
-    return episodes
+# The detection and bisecting live in bisect.py (``find_episodes``); the study caches them.
 
 
 def _cached_episodes(
@@ -417,6 +223,7 @@ def _cached_episodes(
     digest = hashlib.sha256()
     digest.update((run_dir / "trace.jsonl").read_bytes())
     digest.update(trace.meta.base_snapshot.encode())
+    digest.update(b"episodes-v2")  # v2: sabotage runs are searched too
     key = digest.hexdigest()
     path = cache_dir / f"{name}.episodes.json"
     if path.exists() and not rebisect:
@@ -505,18 +312,32 @@ def summarize(summary: StudySummary) -> StudySummary:
     metrics.append(_km_metric(primary))
     metrics.extend(_wasted_metrics(primary))
 
-    sab_fail = {rid: rs for rid, rs in sabotage_runs.items() if any(r.final_failed for r in rs)}
-    sab_ok = sum(
-        1 for rs in sab_fail.values() if any(r.bisectable and r.sabotage_correct for r in rs)
-    )
+    # A sabotage run is judged on the final state, or on a break the agent saw: an episode
+    # whose decisive step is the injected one shows the break was live where it was detected.
+    sab_episodes: dict[str, list[RepairEpisode]] = defaultdict(list)
+    for e in summary.episodes:
+        if e.run_id in sabotage_runs:
+            sab_episodes[e.run_id].append(e)
+    sab_rated = {
+        rid: rs
+        for rid, rs in sabotage_runs.items()
+        if any(r.final_failed for r in rs) or sab_episodes.get(rid)
+    }
+    sab_ok = 0
+    for rid, rs in sab_rated.items():
+        injected = rs[0].sabotage_step
+        by_final = any(r.bisectable and r.sabotage_correct for r in rs)
+        by_episode = any(e.t_err == injected for e in sab_episodes.get(rid, []))
+        sab_ok += by_final or by_episode
     metrics.append(
         _proportion(
             "Sabotage accuracy",
             sab_ok,
-            len(sab_fail),
+            len(sab_rated),
             "Wilson 95%",
-            "sabotage runs whose decisive step is the injected step / sabotage runs that fail "
-            "at the end (not bisectable counts as wrong)",
+            "sabotage runs where the final-state culprit or a break the agent saw has the "
+            "injected step as its decisive step / sabotage runs that fail at the end or show "
+            "a seen break (not bisectable counts as wrong)",
         )
     )
     metrics.extend(_episode_metrics([e for e in summary.episodes if e.run_id in task_runs]))
