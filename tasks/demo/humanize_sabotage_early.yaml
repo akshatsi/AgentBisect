@@ -1,0 +1,6 @@
+# Planted break for the humanize demo (early, so the agent's own test run can see it): an off-by-one in naturalsize (filesize.py),
+# a module the task prompt does not touch. Breaks 3 tests in tests/test_filesize.py.
+at_step: 3
+file: src/humanize/filesize.py
+find: "    if abs_bytes < base:"
+replace: "    if abs_bytes <= base:"
