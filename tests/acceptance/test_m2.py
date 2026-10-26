@@ -717,14 +717,23 @@ def test_c6_record_default_flow_prepares_the_run(tmp_path: Path) -> None:
         assert path.exists(), path
     # The workdir is a copy of the fixture repo.
     fixture = tree_files(TASKS / "fixture_repo")
-    copied = {k: v for k, v in tree_files(workdir).items() if not k.startswith(".opencode")}
+    copied = {
+        k: v for k, v in tree_files(workdir).items() if not k.startswith((".opencode", ".git/"))
+    }
     assert fixture == copied
-    assert not (workdir / ".git").exists()
+    # The workdir has its own git repo, so `git status` in it never walks up into another repo.
+    assert (workdir / ".git").exists()
+    top = git("rev-parse", "--show-toplevel", cwd=workdir).strip()
+    assert Path(top).resolve() == workdir.resolve(), top
     # PROMPT.txt carries the task prompt.
     import yaml
 
     prompt = yaml.safe_load((TASKS / "t01.yaml").read_text())["prompt"]
-    assert (run / "PROMPT.txt").read_text().strip() == prompt.strip()
+    # The only allowed difference: `python` pinned to an interpreter path (commit f212c2e).
+    saved = (run / "PROMPT.txt").read_text().strip()
+    normalized = re.sub(r"`'?[^`]*?python'? -m pytest", "`python -m pytest", saved)
+    assert normalized == prompt.strip()
+    assert "-m pytest" in saved
     # meta.json is valid and points at the workdir.
     meta = TraceMeta.model_validate_json((run / "meta.json").read_text())
     assert meta.source is TraceSource.ALAN_CODE and meta.task_id == "t01"
@@ -745,6 +754,10 @@ def test_c6_record_default_flow_prepares_the_run(tmp_path: Path) -> None:
     base_files = git("ls-tree", "-r", "--name-only", meta.base_snapshot, git_dir=shadow).split()
     assert base_files and not any(f.startswith(".opencode") for f in base_files)
     assert "shop/catalog.py" in base_files
+    assert not any(f == ".git" or f.startswith(".git/") for f in base_files)
+    for sha in git("log", "--all", "--format=%H", git_dir=shadow).split():
+        names = git("ls-tree", "-r", "--name-only", sha, git_dir=shadow).split()
+        assert not any(f == ".git" or f.startswith(".git/") for f in names), sha
     (workdir / ".opencode" / "scratch.txt").write_text("noise")
     send_step(run, 1, "bash", {"command": "true", "description": "noop"})
     step = read_trace_raw(run)[0]
