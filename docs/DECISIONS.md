@@ -26,3 +26,5 @@ One line per non-obvious choice: date, decision, reason.
 - 2026-10-26 · `record()` re-raises `SpendCapExceeded` after saving the partial trace, so a batch stops when the cap is hit.
 - 2026-10-26 · Each Alan Code workdir gets its own git repo with one commit. The first real run showed the agent running `git status`, which walked up into the user's project repo. Snapshots exclude `.git`.
 - 2026-10-26 · First real Alan Code run (t01, DeepSeek V4.1 Flash): per-call hooks fire, 21 steps each with a snapshot. Alan's events report cost 0, so cost per run is read from the Alan usage page, not the trace. One run used about 460k tokens, mostly re-sent context.
+- 2026-10-26 · A run where Alan resumed an earlier conversation (`<resume_context>` in the events) is flagged in `finalize.json` and by `agentbisect run`, and is excluded from the study. The first t04 run was discarded for this reason.
+- 2026-10-26 · Only DeepSeek models are usable in Alan Code, so the cross-model comparison narrows to DeepSeek (METHODS §8).

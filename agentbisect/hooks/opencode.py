@@ -481,6 +481,19 @@ def _step_from_part(index: int, part: Mapping[str, Any]) -> Step | None:
     )
 
 
+RESUME_MARKER = "<resume_context>"
+
+
+def _resumed(run_dir: Path) -> bool:
+    """True if Alan replayed an earlier conversation into this one.
+
+    Alan prepends ``<resume_context>`` when a conversation is continued instead of started fresh.
+    The agent then also works on the old task, so the run is not clean study data.
+    """
+    path = run_dir / "events.jsonl"
+    return path.exists() and RESUME_MARKER in path.read_text(errors="replace")
+
+
 def finalize_run(run_dir: Path) -> dict[str, Any]:
     """Merge ``events.jsonl`` into the trace. Safe to run any number of times."""
     run_dir = Path(run_dir)
@@ -523,6 +536,7 @@ def finalize_run(run_dir: Path) -> dict[str, Any]:
             "model_seen": model,
             "finished": trace.meta.finished,
             "per_step_snapshots": mode == "hooks",
+            "resumed_conversation": _resumed(run_dir),
         }
         (run_dir / "finalize.json").write_text(json.dumps(summary, indent=2))
         return summary

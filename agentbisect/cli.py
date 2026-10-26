@@ -253,7 +253,12 @@ def run(
     if (trace / "events.jsonl").exists():  # Alan Code run: finalize in case the agent never idled
         from agentbisect.hooks.opencode import finalize_run
 
-        finalize_run(trace)
+        if finalize_run(trace).get("resumed_conversation"):
+            console.print(
+                "[bold yellow]Warning:[/bold yellow] Alan resumed an earlier conversation into this "
+                "run, so the agent also saw an old task. Do not use it as study data; record again "
+                "in a new conversation."
+            )
     loaded = _load_trace(console, trace)
     if loaded.n == 0:
         raise _fail(console, "The trace has no steps.")

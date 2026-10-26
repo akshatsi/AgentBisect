@@ -32,3 +32,11 @@ def test_workdir_gets_its_own_git_repo(tmp_path):
         text=True,
     ).stdout.split()
     assert files == ["a.py"]
+
+
+def test_resumed_conversation_is_flagged(tmp_path):
+    from agentbisect.hooks.opencode import _resumed
+
+    assert not _resumed(tmp_path)
+    (tmp_path / "events.jsonl").write_text('{"text": "<resume_context>\\nUser: old task"}\n')
+    assert _resumed(tmp_path)
