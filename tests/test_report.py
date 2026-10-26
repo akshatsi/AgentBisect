@@ -460,7 +460,7 @@ def test_page_works_offline(run_copy: Path) -> None:
     assert "@import" not in page and "url(" not in page
     outside_data = DATA_RE.sub("", page)
     assert "http://" not in outside_data and "https://" not in outside_data
-    assert page.count("<script") == 3 + len(page_mod.VENDOR_SCRIPTS) + 1  # boot, data, libs, 2 apps
+    assert page.count("<script") == 2 + len(page_mod.VENDOR_SCRIPTS) + 1  # data, libs, 2 apps
     assert len(page) < 1_000_000
 
 
@@ -491,32 +491,17 @@ def test_every_script_parses() -> None:
         assert done.returncode == 0, f"{path.name}: {done.stderr}"
 
 
-def test_page_has_dark_mode_phone_layout_and_reduced_motion(run_copy: Path) -> None:
+def test_page_is_one_dark_theme_with_solid_colors_phone_layout_and_reduced_motion(
+    run_copy: Path,
+) -> None:
     page = html_of(run_copy)
-    assert "prefers-color-scheme: dark" in page
-    assert 'data-theme="dark"' in page
+    assert "color-scheme: dark" in page
+    assert "gradient" not in page  # solid colors only
+    assert "prefers-color-scheme" not in page and "data-theme" not in page
     assert 'name="viewport"' in page
     assert "max-width: 560px" in page
     assert "prefers-reduced-motion: reduce" in page
     assert ":focus-visible" in page
-
-
-@needs_node
-def test_theme_toggle_flips_the_theme(run_copy: Path) -> None:
-    out = run_page(
-        render_report(run_copy),
-        """
-        const btn = H.all((n) => (n.getAttribute("aria-label") || "").startsWith("Switch to"))[0];
-        const before = document.documentElement.getAttribute("data-theme");
-        H.click(btn);
-        await H.tick(40);
-        const mid = document.documentElement.getAttribute("data-theme");
-        H.click(H.all((n) => (n.getAttribute("aria-label") || "").startsWith("Switch to"))[0]);
-        await H.tick(40);
-        return [before, mid, document.documentElement.getAttribute("data-theme")];
-        """,
-    )
-    assert out["result"] == [None, "dark", "light"]
 
 
 @needs_node

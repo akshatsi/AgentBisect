@@ -42,8 +42,8 @@ main.page { padding-bottom: 20px; }
 .lag h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 800; margin-bottom: 12px; }
 .lagtrack { position: relative; height: 26px; border-radius: 8px; background: var(--green-bg); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); }
 .lagtrack .seg { position: absolute; top: -1px; bottom: -1px; }
-.lagtrack .seg.broken { background: repeating-linear-gradient(135deg, var(--amber-bg) 0 7px, color-mix(in srgb, var(--amber) 38%, var(--amber-bg)) 7px 14px); border-top: 2px solid var(--amber); border-bottom: 2px solid var(--amber); }
-.lagtrack .seg.broken.open { border-right: 0; mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.lagtrack .seg.broken { background: var(--amber-bg); border-top: 2px solid var(--amber); border-bottom: 2px solid var(--amber); }
+.lagtrack .seg.broken.open { border-right: 0; border-right: 2px dashed var(--amber); }
 .lagtrack .seg.after { background: var(--blue-bg); border: 0; border-radius: 0 7px 7px 0; opacity: .8; }
 .lagtrack .mk { position: absolute; top: -7px; width: 4px; height: 38px; margin-left: -2px; border-radius: 3px; }
 .lagtrack .mk.err { background: var(--red-solid); } .lagtrack .mk.obs { background: var(--blue); }
@@ -76,7 +76,7 @@ main.page { padding-bottom: 20px; }
 .legend i { width: 13px; height: 13px; border-radius: 4px; border: 1.5px solid var(--line2); display: inline-block; background: var(--panel2); }
 .legend .l-good { background: var(--green-bg); border-color: var(--green); }
 .legend .l-bad { background: var(--red-bg); border-color: var(--red); }
-.legend .l-unk { background: repeating-linear-gradient(45deg, var(--amber-bg) 0 4px, transparent 4px 8px); border-color: var(--amber); }
+.legend .l-unk { background: var(--amber-bg); border-color: var(--amber); }
 .legend .l-dec { background: var(--red-solid); border-color: var(--red-solid); }
 .legend .l-brk { background: var(--amber-bg); border-color: var(--amber); }
 .legend .l-obs { border-color: var(--blue); box-shadow: 0 0 0 1.5px var(--blue); }
@@ -111,7 +111,7 @@ main.page { padding-bottom: 20px; }
 .track { display: flex; height: 16px; border-radius: 9px; overflow: hidden; background: var(--line); }
 .track .seg { height: 100%; transition: width .55s cubic-bezier(.3,.7,.3,1); }
 .seg.good { background: var(--green); } .seg.bad { background: var(--red-solid); }
-.seg.unk { background: repeating-linear-gradient(45deg, var(--amber) 0 6px, color-mix(in srgb, var(--amber) 50%, var(--panel)) 6px 12px); }
+.seg.unk { background: var(--amber); }
 .seg.none { background: transparent; }
 .railcap { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
 .railcap b { color: var(--ink); }

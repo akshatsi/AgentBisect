@@ -3,69 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <title>AgentBisect report t06-flash-20261026-132352</title>
-<script>
-(function () {
-  try {
-    var t = localStorage.getItem("agentbisect-theme");
-    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-  } catch (e) {}
-})();
-</script>
 <style>
 :root {
-  --bg: #f3f5f9; --bg2: #eaedf4; --panel: #ffffff; --panel2: #f7f8fb; --ink: #131824;
-  --muted: #566176; --line: #e0e4ec; --line2: #c9d0dc;
-  --accent: #5640e0; --accent-bg: #edebfd; --accent-ink: #ffffff;
-  --red: #c8283a; --red-bg: #fdecee; --red-solid: #d1323f;
-  --amber: #a85f00; --amber-bg: #fff3d9;
-  --blue: #1558c8; --blue-bg: #e6effd;
-  --green: #17803f; --green-bg: #e4f5ea;
-  --code-bg: #f3f5f9; --code-ink: #1d2433;
-  --add-bg: #e7f6ec; --add-ink: #0f5a2c; --add-gut: #cdeed9;
-  --del-bg: #fdecee; --del-ink: #8a1e2b; --del-gut: #f9d1d6;
-  --hunk-bg: #e6effd; --hunk-ink: #1558c8;
-  --tk-k: #8a2be2; --tk-s: #0b7a3b; --tk-c: #7b8497; --tk-n: #a85f00;
-  --shadow: 0 1px 2px rgba(20,28,45,.06), 0 8px 24px rgba(20,28,45,.06);
-  --hero: linear-gradient(135deg, #ecebff 0%, #ffffff 55%);
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0b0e14; --bg2: #10141c; --panel: #151a23; --panel2: #1b212c; --ink: #e8ebf2;
---muted: #9aa5b8; --line: #262d3a; --line2: #364052;
---accent: #8f84ff; --accent-bg: #211f46; --accent-ink: #0b0e14;
---red: #ff6b78; --red-bg: #34171c; --red-solid: #e5484d;
---amber: #f2b45a; --amber-bg: #33270f;
---blue: #6aa8ff; --blue-bg: #13253f;
---green: #55d089; --green-bg: #11301f;
---code-bg: #0d1118; --code-ink: #d7deea;
---add-bg: #11301f; --add-ink: #9be6b6; --add-gut: #17432a;
---del-bg: #34171c; --del-ink: #ffadb4; --del-gut: #4b2027;
---hunk-bg: #13253f; --hunk-ink: #8fbaff;
---tk-k: #c792ea; --tk-s: #a5d6a7; --tk-c: #7d8aa0; --tk-n: #f2b45a;
---shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.25);
---hero: linear-gradient(135deg, #1b1740 0%, #151a23 55%);
-color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0b0e14; --bg2: #10141c; --panel: #151a23; --panel2: #1b212c; --ink: #e8ebf2;
---muted: #9aa5b8; --line: #262d3a; --line2: #364052;
---accent: #8f84ff; --accent-bg: #211f46; --accent-ink: #0b0e14;
---red: #ff6b78; --red-bg: #34171c; --red-solid: #e5484d;
---amber: #f2b45a; --amber-bg: #33270f;
---blue: #6aa8ff; --blue-bg: #13253f;
---green: #55d089; --green-bg: #11301f;
---code-bg: #0d1118; --code-ink: #d7deea;
---add-bg: #11301f; --add-ink: #9be6b6; --add-gut: #17432a;
---del-bg: #34171c; --del-ink: #ffadb4; --del-gut: #4b2027;
---hunk-bg: #13253f; --hunk-ink: #8fbaff;
---tk-k: #c792ea; --tk-s: #a5d6a7; --tk-c: #7d8aa0; --tk-n: #f2b45a;
---shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.25);
---hero: linear-gradient(135deg, #1b1740 0%, #151a23 55%);
-color-scheme: dark;
+  /* one theme: near-black with a gray tint, white text; red and green mean fail and pass */
+  --bg: #131416; --bg2: #191a1d; --panel: #1c1d20; --panel2: #232427; --ink: #f4f4f5;
+  --muted: #a1a4aa; --line: #2d2f33; --line2: #3d4045;
+  --accent: #f4f4f5; --accent-bg: #2b2d31; --accent-ink: #131416;
+  --red: #ff5c63; --red-bg: #3b1a1d; --red-solid: #e5484d;
+  --amber: #e3a948; --amber-bg: #33290f;
+  --blue: #7db4ff; --blue-bg: #17283f;
+  --green: #3fd27f; --green-bg: #123122;
+  --code-bg: #101113; --code-ink: #dcdee2;
+  --add-bg: #123122; --add-ink: #8fe6b3; --add-gut: #17432c;
+  --del-bg: #3b1a1d; --del-ink: #ffb0b4; --del-gut: #54252a;
+  --hunk-bg: #17283f; --hunk-ink: #8fbaff;
+  --tk-k: #c9a0f0; --tk-s: #a5d6a7; --tk-c: #858a94; --tk-n: #e3a948;
+  --shadow: 0 1px 2px rgba(0,0,0,.45), 0 8px 24px rgba(0,0,0,.28);
+  --hero: var(--panel);
+  color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -86,7 +43,7 @@ button { font: inherit; color: inherit; }
 .boot { padding: 40px 20px; color: var(--muted); text-align: center; }
 
 /* top bar */
-.topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
+.topbar { position: sticky; top: 0; z-index: 20; background: var(--bg); border-bottom: 1px solid var(--line); }
 .topbar .wrap { display: flex; align-items: center; gap: 14px; height: 54px; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.01em; font-size: 16px; text-decoration: none; color: var(--ink); }
 .brand svg { color: var(--accent); }
@@ -143,7 +100,7 @@ pre.code {
 pre.code.nowrap { white-space: pre; overflow-wrap: normal; }
 .capbox { position: relative; }
 .capbox.capped pre.code { max-height: 15em; overflow: hidden; }
-.capbox.capped::after { content: ""; position: absolute; left: 1px; right: 1px; bottom: 33px; height: 40px; border-radius: 0 0 10px 10px; background: linear-gradient(transparent, var(--code-bg)); pointer-events: none; }
+.capbox.capped::after { content: ""; position: absolute; left: 1px; right: 1px; bottom: 33px; height: 2px; background: var(--line2); pointer-events: none; }
 .capbox .more { display: block; width: 100%; margin-top: 4px; }
 .cap { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 6px; }
 
@@ -234,8 +191,8 @@ main.page { padding-bottom: 20px; }
 .lag h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 800; margin-bottom: 12px; }
 .lagtrack { position: relative; height: 26px; border-radius: 8px; background: var(--green-bg); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); }
 .lagtrack .seg { position: absolute; top: -1px; bottom: -1px; }
-.lagtrack .seg.broken { background: repeating-linear-gradient(135deg, var(--amber-bg) 0 7px, color-mix(in srgb, var(--amber) 38%, var(--amber-bg)) 7px 14px); border-top: 2px solid var(--amber); border-bottom: 2px solid var(--amber); }
-.lagtrack .seg.broken.open { border-right: 0; mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.lagtrack .seg.broken { background: var(--amber-bg); border-top: 2px solid var(--amber); border-bottom: 2px solid var(--amber); }
+.lagtrack .seg.broken.open { border-right: 0; border-right: 2px dashed var(--amber); }
 .lagtrack .seg.after { background: var(--blue-bg); border: 0; border-radius: 0 7px 7px 0; opacity: .8; }
 .lagtrack .mk { position: absolute; top: -7px; width: 4px; height: 38px; margin-left: -2px; border-radius: 3px; }
 .lagtrack .mk.err { background: var(--red-solid); } .lagtrack .mk.obs { background: var(--blue); }
@@ -268,7 +225,7 @@ main.page { padding-bottom: 20px; }
 .legend i { width: 13px; height: 13px; border-radius: 4px; border: 1.5px solid var(--line2); display: inline-block; background: var(--panel2); }
 .legend .l-good { background: var(--green-bg); border-color: var(--green); }
 .legend .l-bad { background: var(--red-bg); border-color: var(--red); }
-.legend .l-unk { background: repeating-linear-gradient(45deg, var(--amber-bg) 0 4px, transparent 4px 8px); border-color: var(--amber); }
+.legend .l-unk { background: var(--amber-bg); border-color: var(--amber); }
 .legend .l-dec { background: var(--red-solid); border-color: var(--red-solid); }
 .legend .l-brk { background: var(--amber-bg); border-color: var(--amber); }
 .legend .l-obs { border-color: var(--blue); box-shadow: 0 0 0 1.5px var(--blue); }
@@ -303,7 +260,7 @@ main.page { padding-bottom: 20px; }
 .track { display: flex; height: 16px; border-radius: 9px; overflow: hidden; background: var(--line); }
 .track .seg { height: 100%; transition: width .55s cubic-bezier(.3,.7,.3,1); }
 .seg.good { background: var(--green); } .seg.bad { background: var(--red-solid); }
-.seg.unk { background: repeating-linear-gradient(45deg, var(--amber) 0 6px, color-mix(in srgb, var(--amber) 50%, var(--panel)) 6px 12px); }
+.seg.unk { background: var(--amber); }
 .seg.none { background: transparent; }
 .railcap { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
 .railcap b { color: var(--ink); }
@@ -547,58 +504,12 @@ kbd { font: 600 11px/1 ui-monospace, Menlo, monospace; border: 1px solid var(--l
     </svg>`;
   };
 
-  /* ------------------------------------------------------------------ theme */
-
-  function currentTheme() {
-    var t = document.documentElement.getAttribute("data-theme");
-    if (t === "light" || t === "dark") return t;
-    try {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    } catch (e) {
-      return "light";
-    }
-  }
-  AB.ThemeToggle = function () {
-    var s = AB.useState(currentTheme());
-    var theme = s[0];
-    AB.useEffect(function () {
-      // follow the system setting while the person has not picked a theme
-      var mq;
-      try {
-        mq = window.matchMedia("(prefers-color-scheme: dark)");
-      } catch (e) {
-        return undefined;
-      }
-      function onChange() {
-        s[1](currentTheme());
-      }
-      if (mq.addEventListener) mq.addEventListener("change", onChange);
-      return function () {
-        if (mq.removeEventListener) mq.removeEventListener("change", onChange);
-      };
-    }, []);
-    function flip() {
-      var next = theme === "dark" ? "light" : "dark";
-      document.documentElement.setAttribute("data-theme", next);
-      try {
-        localStorage.setItem("agentbisect-theme", next);
-      } catch (e) {}
-      s[1](next);
-    }
-    var label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
-    return html`<button type="button" class="btn icon" onClick=${flip} aria-label=${label} title=${label}>
-      <${AB.Icon} name=${theme === "dark" ? "sun" : "moon"} size=${17} />
-      <span class="tlabel">${theme === "dark" ? "Light" : "Dark"}</span>
-    </button>`;
-  };
-
   AB.TopBar = function (props) {
     return html`<header class="topbar">
       <div class="wrap">
         <span class="brand"><${AB.Logo} /> AgentBisect <small>${props.kind}</small></span>
         <span class="grow crumb">${props.crumb}</span>
         ${props.children}
-        <${AB.ThemeToggle} />
       </div>
     </header>`;
   };

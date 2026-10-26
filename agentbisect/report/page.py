@@ -23,7 +23,6 @@ VENDOR = ASSETS / "vendor"
 #: Vendored scripts, in load order. ``hooks`` needs the ``preact`` global, ``htm`` stands alone.
 VENDOR_SCRIPTS = ("preact.min.js", "hooks.umd.js", "htm.js")
 
-_DARK_MARK = "/*@DARK*/"
 _SOURCE_MAP = re.compile(r"\n?//# sourceMappingURL=\S+\s*$")
 
 
@@ -43,10 +42,8 @@ def vendor_js(name: str) -> str:
 
 @cache
 def css(*names: str) -> str:
-    """The named stylesheets joined, with the dark palette written into both dark selectors."""
-    dark = (ASSETS / "dark.vars").read_text(encoding="utf-8").strip()
-    parts = [(ASSETS / n).read_text(encoding="utf-8").replace(_DARK_MARK, dark) for n in names]
-    return "\n".join(parts)
+    """The named stylesheets, joined."""
+    return "\n".join((ASSETS / n).read_text(encoding="utf-8") for n in names)
 
 
 @cache

@@ -96,58 +96,12 @@
     </svg>`;
   };
 
-  /* ------------------------------------------------------------------ theme */
-
-  function currentTheme() {
-    var t = document.documentElement.getAttribute("data-theme");
-    if (t === "light" || t === "dark") return t;
-    try {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    } catch (e) {
-      return "light";
-    }
-  }
-  AB.ThemeToggle = function () {
-    var s = AB.useState(currentTheme());
-    var theme = s[0];
-    AB.useEffect(function () {
-      // follow the system setting while the person has not picked a theme
-      var mq;
-      try {
-        mq = window.matchMedia("(prefers-color-scheme: dark)");
-      } catch (e) {
-        return undefined;
-      }
-      function onChange() {
-        s[1](currentTheme());
-      }
-      if (mq.addEventListener) mq.addEventListener("change", onChange);
-      return function () {
-        if (mq.removeEventListener) mq.removeEventListener("change", onChange);
-      };
-    }, []);
-    function flip() {
-      var next = theme === "dark" ? "light" : "dark";
-      document.documentElement.setAttribute("data-theme", next);
-      try {
-        localStorage.setItem("agentbisect-theme", next);
-      } catch (e) {}
-      s[1](next);
-    }
-    var label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
-    return html`<button type="button" class="btn icon" onClick=${flip} aria-label=${label} title=${label}>
-      <${AB.Icon} name=${theme === "dark" ? "sun" : "moon"} size=${17} />
-      <span class="tlabel">${theme === "dark" ? "Light" : "Dark"}</span>
-    </button>`;
-  };
-
   AB.TopBar = function (props) {
     return html`<header class="topbar">
       <div class="wrap">
         <span class="brand"><${AB.Logo} /> AgentBisect <small>${props.kind}</small></span>
         <span class="grow crumb">${props.crumb}</span>
         ${props.children}
-        <${AB.ThemeToggle} />
       </div>
     </header>`;
   };
