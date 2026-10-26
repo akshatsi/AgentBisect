@@ -5,7 +5,7 @@ then a **new** Alan Code conversation on the printed `workdir` folder. If a run 
 
 | # | task | run folder | status |
 |---|---|---|---|
-| 1 | t10 | runs/t10-flash-20261026-131147 | prepared |
+| 1 | t10 | runs/t10-flash-20261026-132009 | prepared (first try resumed old chat, set aside) |
 | 2 | t06 | | |
 | 3 | t08 | | |
 | 4 | t04 | | |
