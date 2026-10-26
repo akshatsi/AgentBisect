@@ -613,6 +613,20 @@ fixture library and these tasks*. Write "Flash broke an existing test in X of 16
   cluster-bootstrap CI over runs (`bootstrap_ci`, items = runs, statistic = median over the
   episodes in the resample, B = 2000, seed 0). **Never pool them** with §5's censored analysis.
   They say nothing about breaks the agent never saw.
+  - **Bisect window.** If the agent's own earlier test run showed this test passing at step
+    `j < k`, bisect over `j..k` (precondition: the oracle passes at `j`). A plain bisect over
+    the non-monotone `0..k` can stop on an older break that was already repaired. If the oracle
+    does not pass at `j`, fall back to `0..k`.
+  - **Sabotage runs contribute no episodes.** The injected break changes what the agent does
+    afterwards, so drop the whole run from the series, as §5.1 drops it from the lag analysis.
+    An episode whose `t_err` is the injected step stays listed with a reason and no lag.
+  - **Bootstrap items:** only the runs with at least one bisected episode. A run with none adds
+    no lag, so including it would only produce empty resamples.
+- **Suite cannot run** (oracle ERROR per §2.1 on the whole suite):
+  - **at step 0:** a problem with the environment, not the agent. Exclude the run, giving the
+    reason.
+  - **only at step n:** the agent broke the test run itself (e.g. a hang, deleted tests). Count
+    the run as broken (`final_failed = True`, `bisectable = False`).
 - **Threshold for a pooled KM median:** at least 6 bisectable broken runs, of which at least 3
   were observed. KM needs half the rows observed to give a median at all. With 6 runs the
   censoring-rate interval is still ±0.3 wide. Below that, list each run as a row and give the
