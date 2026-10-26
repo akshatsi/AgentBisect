@@ -27,6 +27,7 @@ from agentbisect.models import (
     TraceSource,
     Verdict,
 )
+from agentbisect.report.stable import write_text_stable
 from agentbisect.report.text import (
     Shortener,
     check_label,
@@ -600,5 +601,5 @@ def render_report(run_dir: Path) -> Path:
     template = env.get_template(TEMPLATE_NAME)
     html = template.render(**build_context(run_dir))
     out = run_dir / "report.html"
-    out.write_text(html, encoding="utf-8")
+    write_text_stable(out, html)
     return out

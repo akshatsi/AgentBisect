@@ -478,7 +478,11 @@ def fake_study_module(summary: StudySummary) -> types.ModuleType:
         path.write_text(s.model_dump_json(indent=2))
         return path
 
+    def keep_created_at(s: StudySummary, out_dir: Path) -> StudySummary:
+        return s
+
     mod.collect, mod.summarize, mod.write = collect, summarize, write  # type: ignore[attr-defined]
+    mod.keep_created_at = keep_created_at  # type: ignore[attr-defined]
     return mod
 
 
@@ -535,16 +539,17 @@ def test_study_writes_json_html_and_draft_and_prints_tables(
         assert (out / name).exists(), name
     for needle in (
         "Runs",
-        "t04-flash-1",
+        "t04",
         "censored",
         "Excluded runs",
         "Alan resumed an earlier conversation",
         "Repaired breaks",
         "Metrics",
         "broken-run share",
-        "Audited by math-analyst: pending",
+        "The audited results are in docs/RESULTS.md",
     ):
         assert needle in result.output, needle
+    assert "pending" not in result.output
     # No run folder exists on disk, so the page links to none of them.
     assert "report.html" not in (out / "study.html").read_text()
 
@@ -751,3 +756,90 @@ def test_run_says_when_the_break_was_the_last_step(
     assert "This was the agent's last step, so it had no chance to see the failure." in out
     assert "The run ended with the test broken." in out
     assert "never noticed" not in out and "0 tokens" not in out
+
+
+# --------------------------------------------------------------------------- replays and tables
+
+
+def test_run_again_keeps_bisect_json_and_report_byte_identical(synthetic: Path) -> None:
+    first = invoke("run", "--trace", str(synthetic), "--check", CHECK)
+    assert first.exit_code == 0, first.output
+    assert invoke("report", "--trace", str(synthetic)).exit_code == 0
+    files = [synthetic / "bisect.json", synthetic / "report.html"]
+    before = [(f.read_bytes(), f.stat().st_mtime_ns) for f in files]
+    again = invoke("run", "--trace", str(synthetic), "--check", CHECK)  # new created_at, durations
+    assert again.exit_code == 0, again.output
+    assert invoke("report", "--trace", str(synthetic)).exit_code == 0
+    assert before == [(f.read_bytes(), f.stat().st_mtime_ns) for f in files]
+
+
+def test_run_rewrites_bisect_json_when_the_verdict_changes(synthetic: Path) -> None:
+    before = (synthetic / "bisect.json").read_text()
+    other = invoke("run", "--trace", str(synthetic), "--check", FAST_CHECK)
+    assert other.exit_code == 0, other.output
+    assert (synthetic / "bisect.json").read_text() != before
+
+
+def _render_study_table(summary: StudySummary, width: int = 80) -> str:
+    import io
+
+    from rich.console import Console
+
+    from agentbisect.cli import _print_study
+
+    buf = io.StringIO()
+    _print_study(Console(file=buf, width=width, highlight=False, force_terminal=False), summary)
+    return buf.getvalue()
+
+
+def _long_summary() -> StudySummary:
+    from agentbisect.models import RepairEpisode, StudyRow
+
+    def row(run_id: str, task: str, **kw: object) -> StudyRow:
+        base = dict(
+            run_id=run_id, task_id=task, model="flash", n_steps=21, final_failed=False,
+            bisectable=False, total_tokens=1000,
+        )  # fmt: skip
+        return StudyRow(**{**base, **kw})  # type: ignore[arg-type]
+
+    broke = dict(final_failed=True, bisectable=True, t_err=8, censored=True, wasted_tokens=10)
+    long_test = "python -m pytest -q 'tests/test_filesize.py::test_naturalsize[test_args56-1.0K]'"
+    rows = [
+        row("t01-flash-20261026-095102", "t01"),
+        row("caught-and-fixed", "s03", sabotage_step=9),
+        *(
+            row(
+                "humanize-planted-break", "humanize", sabotage_step=8, sabotage_correct=True,
+                check=long_test.replace("56", str(i)), **broke,
+            )
+            for i in range(3)
+        ),
+    ]  # fmt: skip
+    ep = RepairEpisode(
+        run_id="caught-and-fixed", check="python -m pytest -q tests/test_orders.py::" + "x" * 50,
+        seen_at=13, t_err=9, lag=4, wasted_tokens=112179,
+    )  # fmt: skip
+    return make_summary().model_copy(
+        update={
+            "rows": rows,
+            "episodes": [ep],
+            "excluded": {"humanize-ordinal-fix": "a case study"},
+        }
+    )
+
+
+def test_study_tables_fit_80_columns_without_splitting_ids() -> None:
+    out = _render_study_table(_long_summary())
+    assert max(len(line) for line in out.splitlines()) <= 80
+    for label in ("t01-0951", "s03", "humanize", "found step 9", "found step 8", "3 tests"):
+        assert label in out, label
+    assert "unknown" not in out and "no result" not in out
+    assert "…" in out  # the long repaired-break test name is cut with an ellipsis
+    # The run table has one line per run and decisive step: 3 tests collapsed into one line.
+    assert sum(line.split()[:1] == ["humanize"] for line in out.splitlines()) == 1
+
+
+def test_study_table_is_the_same_at_other_widths_without_overflow() -> None:
+    for width in (60, 100):
+        out = _render_study_table(_long_summary(), width)
+        assert max(len(line) for line in out.splitlines()) <= width

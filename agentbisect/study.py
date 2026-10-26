@@ -36,8 +36,19 @@ from agentbisect.models import (
     StudySummary,
     Trace,
 )
+from agentbisect.report.stable import read_text, same_json, write_json_stable
+from agentbisect.report.study import sabotage_outcomes
 
-__all__ = ["collect", "summarize", "write", "find_episodes", "DESIGN"]
+__all__ = [
+    "collect",
+    "summarize",
+    "write",
+    "keep_created_at",
+    "sabotage_outcomes",
+    "repo_name",
+    "find_episodes",
+    "DESIGN",
+]
 
 DESIGN = (
     "METHODS §8 variant B: DeepSeek V4.1 Flash only in Alan Code, the 10 t-tasks plus 6 repeats "
@@ -176,12 +187,21 @@ def _step0_fault(report: RunReport) -> str | None:
     return None
 
 
+def repo_name(origin: str | None) -> str | None:
+    """``https://github.com/python-humanize/humanize.git`` -> ``humanize``; ``None`` if unknown."""
+    if not origin:
+        return None
+    last = origin.strip().rstrip("/").replace("\\", "/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    last = last.removesuffix(".git")
+    return last or None
+
+
 def _rows(name: str, trace: Trace, report: RunReport) -> list[StudyRow]:
     """One row per culprit; one row for a run with none. See ``StudyRow``."""
     meta = trace.meta
     common = {
         "run_id": name,
-        "task_id": meta.task_id or "unknown",
+        "task_id": meta.task_id or repo_name(meta.repo_origin) or "unknown",
         "model": meta.model or "unknown",
         "sabotage_step": meta.sabotage_step,
         "n_steps": trace.n,
@@ -337,21 +357,9 @@ def summarize(summary: StudySummary) -> StudySummary:
 
     # A sabotage run is judged on the final state, or on a break the agent saw: an episode
     # whose decisive step is the injected one shows the break was live where it was detected.
-    sab_episodes: dict[str, list[RepairEpisode]] = defaultdict(list)
-    for e in summary.episodes:
-        if e.run_id in sabotage_runs:
-            sab_episodes[e.run_id].append(e)
-    sab_rated = {
-        rid: rs
-        for rid, rs in sabotage_runs.items()
-        if any(r.final_failed for r in rs) or sab_episodes.get(rid)
-    }
-    sab_ok = 0
-    for rid, rs in sab_rated.items():
-        injected = rs[0].sabotage_step
-        by_final = any(r.bisectable and r.sabotage_correct for r in rs)
-        by_episode = any(e.t_err == injected for e in sab_episodes.get(rid, []))
-        sab_ok += by_final or by_episode
+    outcomes = sabotage_outcomes(summary.rows, summary.episodes)
+    sab_rated = {rid: ok for rid, ok in outcomes.items() if ok is not None}
+    sab_ok = sum(sab_rated.values())
     metrics.append(
         _proportion(
             "Sabotage accuracy",
@@ -543,10 +551,29 @@ def _episode_metrics(episodes: list[RepairEpisode]) -> list[Metric]:
 # =========================================================================== write
 
 
+def keep_created_at(summary: StudySummary, out_dir: Path) -> StudySummary:
+    """Reuse the time stored in ``<out_dir>/study.json`` when nothing else in it changed.
+
+    A replay then leaves study.json, study.html and RESULTS.draft.md untouched, since the
+    generation time is the only thing in them that would differ.
+    """
+    old = read_text(Path(out_dir) / "study.json")
+    if old is None or not same_json(old, summary.model_dump_json(indent=2)):
+        return summary
+    try:
+        before = StudySummary.model_validate_json(old)
+    except ValueError:
+        return summary
+    return summary.model_copy(update={"created_at": before.created_at})
+
+
 def write(summary: StudySummary, out_dir: Path | None = None) -> Path:
-    """Save ``summary`` as ``<out_dir>/study.json`` (default ``runs/study``). Returns the path."""
+    """Save ``summary`` as ``<out_dir>/study.json`` (default ``runs/study``). Returns the path.
+
+    A saved file that differs only in volatile fields (see ``report.stable``) is left alone.
+    """
     out_dir = Path(out_dir) if out_dir is not None else Path("runs") / STUDY_DIRNAME
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "study.json"
-    path.write_text(summary.model_dump_json(indent=2))
+    write_json_stable(path, summary.model_dump_json(indent=2))
     return path

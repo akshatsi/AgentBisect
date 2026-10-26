@@ -9,6 +9,7 @@ never a statistic.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader
 
 from agentbisect.models import Metric, RepairEpisode, StudyRow, StudySummary
+from agentbisect.report.stable import write_text_stable
 from agentbisect.report.text import check_label
 
 TEMPLATE_DIR = Path(__file__).parent
@@ -113,12 +115,135 @@ def broken_text(row: StudyRow) -> str:
     return "yes" if row.bisectable else "yes, not bisectable"
 
 
-def sabotage_text(row: StudyRow) -> str:
+def _group_by_run(rows: list[StudyRow]) -> dict[str, list[StudyRow]]:
+    out: dict[str, list[StudyRow]] = {}
+    for r in rows:
+        out.setdefault(r.run_id, []).append(r)
+    return out
+
+
+def sabotage_outcomes(
+    rows: list[StudyRow], episodes: list[RepairEpisode]
+) -> dict[str, bool | None]:
+    """Per sabotage run: did the bisect name the injected step? ``None`` = not rated.
+
+    A run is rated when it fails at the end or shows a break the agent saw. It is right when its
+    final-state culprit, or an episode (a break seen, then fixed), has the injected step as its
+    decisive step. Not bisectable counts as wrong. Used by the accuracy metric (``study.summarize``) and by every table that shows the verdict.
+    """
+    runs = _group_by_run([r for r in rows if r.sabotage_step is not None])
+    out: dict[str, bool | None] = {}
+    for rid, rs in runs.items():
+        injected = rs[0].sabotage_step
+        mine = [e for e in episodes if e.run_id == rid]
+        if not (any(r.final_failed for r in rs) or mine):
+            out[rid] = None
+            continue
+        by_final = any(r.bisectable and r.sabotage_correct for r in rs)
+        out[rid] = bool(by_final or any(e.t_err == injected for e in mine))
+    return out
+
+
+def sabotage_text(row: StudyRow, outcomes: dict[str, bool | None]) -> str:
+    """The sabotage verdict of a row's run, by the rule the accuracy metric uses.
+
+    ``outcomes`` comes from ``agentbisect.study.sabotage_outcomes``: the run is right when its
+    final culprit or a repaired episode has the planted step as its decisive step.
+    """
     if row.sabotage_step is None:
         return "-"
-    if row.sabotage_correct is None:
-        return "no result"
-    return "yes" if row.sabotage_correct else "no"
+    outcome = outcomes.get(row.run_id)
+    if outcome is None:
+        return "no break seen"
+    return f"found step {row.sabotage_step}" if outcome else f"missed step {row.sabotage_step}"
+
+
+def sabotage_class(text: str) -> str:
+    return {"found": "pass", "missed": "fail"}.get(text.split(" ", 1)[0], "")
+
+
+# --------------------------------------------------------------------------- terminal table
+
+LABEL_LIMIT = 20  # characters of a test name shown in the terminal table
+
+
+def clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: max(limit - 1, 1)] + "\u2026"
+
+
+_STAMP = re.compile(r"-\d{8}-(\d{4})\d{2}$")
+
+
+def run_labels(rows: list[StudyRow]) -> dict[str, str]:
+    """Short, unique label per run id: the task id (or repo name) plus the start time as HHMM.
+
+    ``t01-flash-20261026-095102`` becomes ``t01-0951``. A run id without a time stamp keeps the
+    bare task id; two runs that still collide get ``-2``, ``-3``.
+    """
+    labels: dict[str, str] = {}
+    seen: dict[str, int] = {}
+    for r in rows:
+        if r.run_id in labels:
+            continue
+        m = _STAMP.search(r.run_id)
+        base = f"{r.task_id}-{m.group(1)}" if m else r.task_id
+        seen[base] = seen.get(base, 0) + 1
+        labels[r.run_id] = base if seen[base] == 1 else f"{base}-{seen[base]}"
+    return labels
+
+
+@dataclass
+class TableRow:
+    """One line of the terminal run table: rows of one run that share a decisive step collapse."""
+
+    run: str
+    steps: int
+    broken: str
+    t_err: str
+    lag: str
+    wasted: str
+    sabotage: str
+
+
+def _short_lag(row: StudyRow) -> str:
+    if row.t_err is None:
+        return "-"
+    if row.censored or row.t_obs is None:
+        return "censored"
+    return str(row.lag if row.lag is not None else row.t_obs - row.t_err)
+
+
+def table_rows(summary: StudySummary, limit: int = LABEL_LIMIT) -> list[TableRow]:
+    """Collapse the rows that share a run and a decisive step into one line ("3 tests")."""
+    labels = run_labels(summary.rows)
+    outcomes = sabotage_outcomes(summary.rows, summary.episodes)
+    groups: dict[tuple[str, bool, bool, int | None], list[StudyRow]] = {}
+    for r in summary.rows:
+        groups.setdefault((r.run_id, r.final_failed, r.bisectable, r.t_err), []).append(r)
+    out = []
+    for (run_id, failed, bisectable, t_err), rs in groups.items():
+        first = rs[0]
+        if not failed:
+            broken = "no"
+        elif len(rs) > 1:
+            broken = f"{len(rs)} tests"
+        else:
+            broken = clip(check_label(first.check) if first.check else "yes", limit)
+        lags = sorted({_short_lag(r) for r in rs}, key=lambda x: (not x.isdigit(), x))
+        out.append(
+            TableRow(
+                run=labels[run_id],
+                steps=first.n_steps,
+                broken=broken,
+                t_err=str(t_err) if t_err is not None else ("none" if failed else "-"),
+                lag="/".join(lags),
+                wasted=share_text(first),
+                sabotage=sabotage_text(first, outcomes),
+            )
+        )
+        if failed and not bisectable:
+            out[-1].lag = "-"
+    return out
 
 
 # --------------------------------------------------------------------------- counts
@@ -408,10 +533,11 @@ def build_context(
     counts = count_rows(summary.rows)
     can, cannot = claims(counts)
 
+    outcomes = sabotage_outcomes(summary.rows, summary.episodes)
     run_views = []
     for r in summary.rows:
         censored = bool(r.t_err is not None and (r.censored or r.t_obs is None))
-        sab = sabotage_text(r)
+        sab = sabotage_text(r, outcomes)
         run_views.append(
             RunRowView(
                 run_id=r.run_id,
@@ -427,7 +553,7 @@ def build_context(
                 censored=censored,
                 share=share_text(r),
                 sabotage=sab,
-                sabotage_class={"yes": "pass", "no": "fail"}.get(sab, ""),
+                sabotage_class=sabotage_class(sab),
             )
         )
 
@@ -505,7 +631,7 @@ def render_study(
         .render(**build_context(summary, link_prefix=link_prefix, linkable=linkable))
     )
     out = out_dir / "study.html"
-    out.write_text(html, encoding="utf-8")
+    write_text_stable(out, html)
     return out
 
 
@@ -520,13 +646,14 @@ def _md_table(header: list[str], rows: list[list[object]]) -> list[str]:
 
 
 def results_markdown(summary: StudySummary) -> str:
-    """The text of ``RESULTS.draft.md``. The manager copies it to docs/RESULTS.md after the audit."""
+    """The text of ``RESULTS.draft.md``. The audited version is docs/RESULTS.md."""
     c = count_rows(summary.rows)
     can, cannot = claims(c)
+    outcomes = sabotage_outcomes(summary.rows, summary.episodes)
     out: list[str] = ["# Results (draft)", ""]
-    out += ["Audited by math-analyst: pending", ""]
+    out += ["Draft generated by `agentbisect study`; the audited version is docs/RESULTS.md.", ""]
     out += [
-        f"Generated {summary.created_at.strftime('%Y-%m-%d %H:%M UTC')} by `agentbisect study`. "
+        f"Generated {summary.created_at.strftime('%Y-%m-%d %H:%M UTC')}. "
         "Every number below comes from `study.json`.",
         "",
     ]
@@ -577,7 +704,7 @@ def results_markdown(summary: StudySummary) -> str:
                 "t_obs",
                 "lag",
                 "wasted share",
-                "sabotage correct",
+                "sabotage",
             ],
             [
                 [
@@ -590,7 +717,7 @@ def results_markdown(summary: StudySummary) -> str:
                     "-" if r.t_obs is None else r.t_obs,
                     lag_text(r),
                     share_text(r),
-                    sabotage_text(r),
+                    sabotage_text(r, outcomes),
                 ]
                 for r in summary.rows
             ],
@@ -666,7 +793,7 @@ def results_markdown(summary: StudySummary) -> str:
     out += [f"- {s}" for s in can]
     out += ["", "It cannot claim:", ""]
     out += [f"- {s}" for s in cannot]
-    out += ["", "Audited by math-analyst: pending", ""]
+    out += [""]
     return "\n".join(out)
 
 
@@ -675,5 +802,5 @@ def render_results_draft(summary: StudySummary, out_dir: Path) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "RESULTS.draft.md"
-    out.write_text(results_markdown(summary), encoding="utf-8")
+    write_text_stable(out, results_markdown(summary))
     return out

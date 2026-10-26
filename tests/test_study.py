@@ -726,3 +726,96 @@ def test_own_repo_run_without_planted_break_is_a_case_study(tmp_path):
     (run / "finalize.json").write_text('{"mode": "hooks", "per_step_snapshots": true}')
     trace, reason = _load_study_run(run)
     assert trace is None and "case study" in reason
+
+
+# --------------------------------------------------------------------------- labels and replays
+
+
+def test_repo_name_from_origin() -> None:
+    from agentbisect.study import repo_name
+
+    assert repo_name("https://github.com/python-humanize/humanize") == "humanize"
+    assert repo_name("https://github.com/python-humanize/humanize.git/") == "humanize"
+    assert repo_name("git@github.com:me/proj.git") == "proj"
+    assert repo_name("/Users/me/code/proj") == "proj"
+    assert repo_name(None) is None and repo_name("") is None
+
+
+def test_own_repo_rows_carry_the_repo_name_not_unknown(tmp_path: Path) -> None:
+    from agentbisect.study import _rows
+
+    trace = make_synthetic_run(tmp_path / "r", n_steps=5, break_at=3)
+    trace.meta.task_id = None
+    trace.meta.repo_origin = "https://github.com/python-humanize/humanize"
+    rows = _rows("humanize-planted-break", trace, RunReport(run_id="r", checks=[]))
+    assert [r.task_id for r in rows] == ["humanize"]
+    trace.meta.repo_origin = None
+    assert _rows("x", trace, RunReport(run_id="r", checks=[]))[0].task_id == "unknown"
+
+
+def test_sabotage_outcomes_follow_the_accuracy_rule() -> None:
+    from agentbisect.report.study import sabotage_outcomes
+
+    def row(run_id: str, **kw: object) -> StudyRow:
+        base = dict(
+            run_id=run_id, task_id="s", model="flash", sabotage_step=4, n_steps=9,
+            final_failed=False, bisectable=False,
+        )  # fmt: skip
+        return StudyRow(**{**base, **kw})  # type: ignore[arg-type]
+
+    rows = [
+        row("fixed"),  # ends green, break seen and fixed at the planted step
+        row("wrong"),  # ends green, seen break at another step
+        row("quiet"),  # ends green, nothing seen
+        row("final-ok", final_failed=True, bisectable=True, check="c", sabotage_correct=True),
+        row("final-bad", final_failed=True, bisectable=True, check="c", sabotage_correct=False),
+        row("no-step", final_failed=True, bisectable=False, check="c", sabotage_correct=False),
+    ]
+    eps = [
+        RepairEpisode(run_id="fixed", check="c", seen_at=7, t_err=4, lag=3),
+        RepairEpisode(run_id="wrong", check="c", seen_at=7, t_err=6, lag=1),
+    ]
+    assert sabotage_outcomes(rows, eps) == {
+        "fixed": True,
+        "wrong": False,
+        "quiet": None,
+        "final-ok": True,
+        "final-bad": False,
+        "no-step": False,
+    }
+
+
+def test_replaying_a_study_leaves_every_file_byte_identical(tmp_path: Path) -> None:
+    import time
+    from datetime import UTC, datetime, timedelta
+
+    from agentbisect.report.study import render_results_draft, render_study
+    from agentbisect.study import keep_created_at
+    from tests.test_study_report import make_summary
+
+    def build(created: datetime) -> StudySummary:
+        return make_summary().model_copy(update={"created_at": created})
+
+    out = tmp_path / "study"
+    first = build(datetime(2026, 1, 1, 9, 0, tzinfo=UTC))
+    write(first, out)
+    render_study(first, out)
+    render_results_draft(first, out)
+    names = ("study.json", "study.html", "RESULTS.draft.md")
+    before = {n: ((out / n).read_bytes(), (out / n).stat().st_mtime_ns) for n in names}
+
+    time.sleep(0.01)
+    again = keep_created_at(build(first.created_at + timedelta(hours=3)), out)
+    write(again, out)
+    render_study(again, out)
+    render_results_draft(again, out)
+    for n in names:
+        assert (out / n).read_bytes() == before[n][0], n
+        assert (out / n).stat().st_mtime_ns == before[n][1], f"{n} was rewritten"
+
+    changed = build(first.created_at + timedelta(hours=3))
+    changed.design = "a different design"
+    again = keep_created_at(changed, out)
+    assert again.created_at == changed.created_at  # a real change keeps its own time
+    write(again, out)
+    assert "a different design" in (out / "study.json").read_text()

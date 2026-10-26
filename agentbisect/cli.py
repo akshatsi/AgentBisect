@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 import yaml
+from rich import box
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
@@ -23,6 +24,7 @@ from agentbisect.models import (
     Trace,
     TraceMeta,
 )
+from agentbisect.report.stable import write_json_stable
 
 app = typer.Typer(
     help="Find the exact step where a coding agent broke your code.",
@@ -455,7 +457,8 @@ def run(
         raise _fail(console, "The trace has no steps.")
 
     run_report = bisect_run(loaded, trace, check, timeout)
-    (trace / "bisect.json").write_text(run_report.model_dump_json(indent=2))
+    # A replay that finds the same thing keeps the saved file (and its timings), so git stays clean.
+    write_json_stable(trace / "bisect.json", run_report.model_dump_json(indent=2))
 
     if not run_report.culprits and not run_report.repaired:
         console.print(
@@ -530,7 +533,7 @@ def _add_explanations(console: Console, trace: Path, model: str | None) -> None:
                 culprit.explanation = text
                 changed = True
     if changed:
-        path.write_text(run_report.model_dump_json(indent=2))
+        write_json_stable(path, run_report.model_dump_json(indent=2))
 
 
 @app.command()
@@ -585,45 +588,42 @@ def _filter_summary(
 
 
 def _print_study(console: Console, summary: StudySummary) -> None:
+    """Print the run, repaired-break and metric tables. Built to read at 80 columns."""
     from agentbisect.report.study import (
-        broken_text,
-        lag_text,
+        clip,
         metric_interval,
         metric_value,
-        sabotage_text,
-        share_text,
+        run_labels,
+        table_rows,
     )
     from agentbisect.report.text import check_label
 
     if summary.design:
         console.print(f"[dim]{escape(summary.design)}[/dim]")
 
-    runs_table = Table(title="Runs", title_justify="left")
-    for col in (
-        "task",
-        "run",
-        "steps",
-        "broken?",
-        "t_err",
-        "t_obs",
-        "lag",
-        "wasted",
-        "sabotage ok",
-    ):
-        runs_table.add_column(col, overflow="fold")
-    for r in summary.rows:
+    runs_table = Table(title="Runs", title_justify="left", box=box.SIMPLE_HEAD, pad_edge=False)
+    runs_table.add_column("run", no_wrap=True, overflow="ellipsis", min_width=8)
+    runs_table.add_column("steps", no_wrap=True, justify="right")
+    runs_table.add_column("broken", no_wrap=True, overflow="ellipsis", min_width=8)
+    runs_table.add_column("t_err", no_wrap=True, justify="right")
+    runs_table.add_column("lag", no_wrap=True, overflow="ellipsis", min_width=3)
+    runs_table.add_column("wasted", no_wrap=True, justify="right")
+    runs_table.add_column("sabotage", no_wrap=True, overflow="ellipsis", min_width=8)
+    for t in table_rows(summary):
         runs_table.add_row(
-            escape(r.task_id),
-            escape(r.run_id),
-            str(r.n_steps),
-            escape(broken_text(r) + (f" ({check_label(r.check)})" if r.check else "")),
-            "-" if r.t_err is None else str(r.t_err),
-            "-" if r.t_obs is None else str(r.t_obs),
-            escape(lag_text(r)),
-            share_text(r),
-            sabotage_text(r),
+            escape(t.run),
+            str(t.steps),
+            escape(t.broken),
+            t.t_err,
+            escape(t.lag),
+            t.wasted,
+            escape(t.sabotage),
         )
     console.print(runs_table)
+    console.print(
+        "[dim]t_err: step that broke the code. lag: steps until the agent saw it. "
+        "wasted: share of tokens after t_err.[/dim]"
+    )
 
     if summary.excluded:
         console.print("[bold]Excluded runs[/bold]")
@@ -631,20 +631,33 @@ def _print_study(console: Console, summary: StudySummary) -> None:
             console.print(f"  {escape(run_id)}: {escape(reason)}")
 
     if summary.episodes:
-        ep_table = Table(title="Repaired breaks (seen, then fixed)", title_justify="left")
-        for col in ("run", "test", "seen at", "t_err", "lag", "wasted tokens", "note"):
-            ep_table.add_column(col)
+        labels = run_labels(summary.rows)
+        ep_table = Table(
+            title="Repaired breaks (seen, then fixed)",
+            title_justify="left",
+            box=box.SIMPLE_HEAD,
+            pad_edge=False,
+        )
+        ep_table.add_column("run", no_wrap=True, overflow="ellipsis", min_width=8)
+        ep_table.add_column("test", no_wrap=True, overflow="ellipsis", min_width=10)
+        for col in ("seen at", "t_err", "lag", "wasted tokens"):
+            ep_table.add_column(col, no_wrap=True, justify="right")
         for e in summary.episodes:
             ep_table.add_row(
-                escape(e.run_id),
-                escape(check_label(e.check)),
+                escape(labels.get(e.run_id, e.run_id)),
+                escape(clip(check_label(e.check), 28)),
                 str(e.seen_at),
                 "-" if e.t_err is None else str(e.t_err),
                 "-" if e.lag is None else str(e.lag),
                 "-" if e.wasted_tokens is None else f"{e.wasted_tokens:,}",
-                escape(e.reason or ""),
             )
         console.print(ep_table)
+        for e in summary.episodes:
+            if e.reason:
+                who = escape(labels.get(e.run_id, e.run_id))
+                console.print(
+                    f"  {who} {escape(clip(check_label(e.check), 28))}: {escape(e.reason)}"
+                )
     else:
         console.print("[dim]No repaired breaks found.[/dim]")
 
@@ -722,6 +735,7 @@ def study(
 
     summary = study_mod.summarize(summary)
     out_dir = runs / "study"
+    summary = study_mod.keep_created_at(summary, out_dir)  # a replay leaves the files as they are
     json_path = study_mod.write(summary, out_dir)
 
     from agentbisect.report.render import render_report
@@ -748,7 +762,8 @@ def study(
     console.print(f"[bold green]Wrote[/bold green] {escape(str(html_path))}")
     console.print(f"[bold green]Wrote[/bold green] {escape(str(draft_path))}")
     console.print(
-        "Audited by math-analyst: pending. Copy RESULTS.draft.md to docs/RESULTS.md after."
+        f"Draft written to {escape(str(draft_path))}. The audited results are in docs/RESULTS.md.",
+        soft_wrap=True,
     )
 
 
