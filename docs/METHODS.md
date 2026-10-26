@@ -526,3 +526,106 @@ estimate and ask the human before spending.
 Worked example with made-up prices (in the tests): 10 tasks × 1 repeat, model a at
 $0.10/$0.40 with 9 extra runs, model b at $1.00/$3.00, `Ī = 200k`, `Ō = 10k` →
 a: 19 × $0.024 = $0.456; b: 10 × $0.23 = $2.30; total $2.756; with margin $3.445.
+
+---
+
+## 8. Study design under a small, hand-run budget
+
+The agent under test is Alan Code (OpenCode in the Alan app). The human starts each run by hand,
+and runs bill the human's Alan account, so the `$8` cap in §7 does not apply. Budget: about
+16–20 runs. §7's formula still gives a cost estimate once per-run prices are known.
+
+### 8.1 Design: 2 models × 8 tasks + 3 sabotage runs = 19 runs
+
+- **Models: `qwen` (Qwen3.8 27B) and `kimi` (Kimi K3).** Two models, not four: with 8 runs each
+  a per-model rate has a Wilson interval about ±0.3 wide; with 4 models and 4 runs each it
+  would be about ±0.4, which says nothing. Smallest against largest gives the best chance of a
+  visible difference on "does a bigger model notice sooner?". A weak model that breaks things
+  is useful here, since only broken runs carry lag data. Fallback: if `qwen`'s first run makes
+  no tool calls, replace it with `flash` (DeepSeek V4.1 Flash) for all its runs.
+- **Tasks: t01, t02, t04, t05, t06, t07, t08, t09.** Dropped: t03 and t10, the two smallest
+  single-function changes and the least likely to break an existing test. The 8 kept tasks
+  each touch code that existing tests cover (a rename, an enum swap, report formats, the
+  coupon table, stock handling).
+- **Repeats: 1.** Every run spent on a new task beats a repeat at this n.
+- **Sabotage: s01, s02, s03, one run each, on `qwen`** (likely the cheapest). They measure
+  bisect accuracy only and stay out of the lag analysis (§5.1).
+
+### 8.2 Run order (seed 20261026)
+
+Each task is a block with one run per model, so a drift over the day (model updates on Alan,
+the human's habits) hits both models alike. Block order and model order inside each block are
+shuffled; the sabotage runs are spread through the list. Reproduce with
+`stats.study_run_order(tasks, ["qwen", "kimi"], [("s01","qwen"), ("s02","qwen"), ("s03","qwen")], seed=20261026)`.
+
+| # | task | model | # | task | model | # | task | model |
+|---|---|---|---|---|---|---|---|---|
+| 1 | t04 | qwen | 8 | t05 | kimi | 15 | s01 | qwen |
+| 2 | t04 | kimi | 9 | t05 | qwen | 16 | t08 | qwen |
+| 3 | t01 | qwen | 10 | s02 | qwen | 17 | t08 | kimi |
+| 4 | t01 | kimi | 11 | t07 | qwen | 18 | t02 | qwen |
+| 5 | s03 | qwen | 12 | t07 | kimi | 19 | t02 | kimi |
+| 6 | t06 | qwen | 13 | t09 | qwen | | | |
+| 7 | t06 | kimi | 14 | t09 | kimi | | | |
+
+Run them in this order. If a run must be redone (crash, app error before step 1), redo it at
+once and note it; never reorder to fill gaps. Slot 20 is a spare for one such redo.
+
+### 8.3 What the study can claim
+
+Pooled over both models (rows per §5.1):
+
+| Claim | Method | Example at this n |
+|---|---|---|
+| Broken-run share: X of 16 runs ended with a failing test | Wilson (§6.1) | 6/16 → 0.38 (0.18–0.61) |
+| Censoring rate: the agent never saw the break in C of K broken runs | Wilson | 3/6 → 0.50 (0.19–0.81) |
+| Median detection lag in steps | KM median, log-log CI (§5.3) | expect a wide CI, often "upper: not reached" |
+| Wasted-token share after the break | pooled ratio, seeded bootstrap (§6.2) | with K < 10 the percentile CI is too narrow; say so |
+| Bisect accuracy: injected step found in 3 of 3 sabotage runs | Wilson | 3/3 → **(0.44, 1.00)** |
+
+3/3 correct only shows accuracy is probably above 44%. The strong accuracy evidence is the
+simulation (§8.5).
+
+**Per-model results are descriptive only.** Report them in a table without a winner. Smallest
+differences that could reach p < 0.05:
+
+- **Proportions, 8 vs 8 runs:** 0/8 against 5/8 (Fisher two-sided p = 0.026); 0/8 against 4/8
+  gives p = 0.077. So only a gap of about **60 percentage points** can show.
+- **Lag:** with 3 or fewer broken runs per model, no two-sided rank test can reach p < 0.05,
+  even when every lag of one model is shorter than every lag of the other (smallest possible
+  p = 2/20 = 0.10). With 4 against 4, only complete separation reaches it (p = 2/70 = 0.029).
+  Run the global tests of §6.3 anyway and print the p-value with the words "not
+  distinguishable at this sample size" unless it is below 0.05.
+
+**Cannot claim:** that one model notices sooner, any ranking of models, or that the numbers
+hold beyond this fixture library and these 8 tasks.
+
+### 8.4 Runs that end green, and when to report the lag
+
+- A run whose final state passes the oracle has **no break**. It counts in the denominator of
+  the broken-run share (§8.3, first row), is not bisected, and enters no lag statistic.
+- **Self-observed breaks (free salvage, reported separately).** If a green run contains an agent
+  `pytest` step `s` whose output shows a failure signal (§4.2) for a test that passes at step 0,
+  bisect over steps `0..s` with that test as the oracle (precondition: pass at 0, fail at `s`).
+  This gives `t_err` and a lag, with no new Alan runs. Label these "breaks the agent saw and
+  repaired". **Never pool them** with the main lag analysis: they are found *because* the agent
+  saw them, so they are never censored and bias the lag downward.
+- **Threshold: report the pooled KM median only if there are at least 6 broken, bisectable
+  runs (status FOUND) and at least 3 of them are observed.** Reasons: KM needs S(t) ≤ 0.5 to
+  produce a median, which takes at least half the rows observed; with 6 rows the censoring-rate
+  Wilson interval is still about ±0.3 wide, the least that tells "most agents notice" apart from
+  "most do not"; below 6, one run moves the median by a large step.
+- **Below the threshold:** report each broken run as a row (task, model, `t_err`, `t_obs` or
+  "never", lag, wasted tokens) and the censoring count as k/K with its Wilson interval. No
+  median. Topping up with more runs needs the human's approval; if approved, add runs on the
+  tasks that broke most often, alternating models, and say in RESULTS.md that the top-up was
+  chosen after seeing the data.
+
+### 8.5 Free supplementary evidence: simulation
+
+`tests/test_stats.py` runs the full §2.6 procedure on simulated monotone histories (n = 30,
+random `t_err`, 3000 runs per setting, seed 20261026). Results (§2.4): with a deterministic
+oracle the right step every time, using at most ⌈log₂ 30⌉ = 5 probes; with flip rate 0.1, the
+wrong step in 1.1% of runs; with 0.2, in 2.9%. Report this beside the 3/3 sabotage result,
+**labeled "simulation, not real agent runs"**. It shows that the method is correct; the
+sabotage runs show that the pipeline works on real traces.

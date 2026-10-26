@@ -378,3 +378,14 @@ def test_proportion_test():
     assert stats.proportion_test({"a": (3, 5), "b": (1, 5)}, seed=4) == stats.proportion_test(
         {"a": (3, 5), "b": (1, 5)}, seed=4
     )
+
+
+def test_study_run_order():
+    tasks = ["t01", "t02", "t04", "t05", "t06", "t07", "t08", "t09"]
+    sab = [("s01", "qwen"), ("s02", "qwen"), ("s03", "qwen")]
+    order = stats.study_run_order(tasks, ["qwen", "kimi"], sab)
+    assert len(order) == 19
+    assert sorted(order) == sorted([(t, m) for t in tasks for m in ("qwen", "kimi")] + sab)
+    assert order == stats.study_run_order(tasks, ["qwen", "kimi"], sab)  # seeded
+    # Sabotage runs sit after blocks 2, 4 and 6 (positions 5, 10, 15 in 1-based order).
+    assert [i + 1 for i, (t, _) in enumerate(order) if t.startswith("s")] == [5, 10, 15]

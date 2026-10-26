@@ -597,3 +597,35 @@ def estimate_study_cost(
         cap_usd=cap_usd,
         within_cap=total * margin <= cap_usd,
     )
+
+
+# --------------------------------------------------------------------------- §8 run order
+
+
+def study_run_order(
+    tasks: Sequence[str],
+    models: Sequence[str],
+    sabotage: Sequence[tuple[str, str]] = (),
+    seed: int = 20261026,
+) -> list[tuple[str, str]]:
+    """Seeded run order for a hand-run study (METHODS §8.2). Returns (task, model) pairs.
+
+    Each task is a block holding one run per model; block order and model order inside each
+    block are shuffled. Sabotage runs (task, model) are shuffled, then placed after blocks
+    spread evenly through the list: after block ⌈(i+1)·B/(S+1)⌉ for the i-th of S runs.
+    """
+    rng = random.Random(seed)
+    blocks = list(tasks)
+    rng.shuffle(blocks)
+    sab = list(sabotage)
+    rng.shuffle(sab)
+    n_blocks, n_sab = len(blocks), len(sab)
+    after = [math.ceil((i + 1) * n_blocks / (n_sab + 1)) for i in range(n_sab)]
+    order: list[tuple[str, str]] = []
+    for b, task in enumerate(blocks, start=1):
+        ms = list(models)
+        rng.shuffle(ms)
+        order.extend((task, m) for m in ms)
+        order.extend(s for s, pos in zip(sab, after, strict=True) if pos == b)
+    order.extend(s for s, pos in zip(sab, after, strict=True) if pos > n_blocks)
+    return order
