@@ -69,7 +69,9 @@ Vocabulary: **trace** (the list of steps), **snapshot** (repo state after a step
 
 ## The finding
 
-*Comes after the study (M3). The numbers will come from `docs/RESULTS.md`: median detection lag per model with 95% intervals, the share of runs where the agent never noticed, the share of tokens wasted, and bisect accuracy on runs where we injected a known break.*
+*Filled from `docs/RESULTS.md` after the study. The study adds up hand-recorded Alan Code runs of one model (DeepSeek V4.1 Flash) on this fixture library, so every claim is about that setup. It reports how many runs ended broken, the lag for each broken run, how long the agent took to see breaks it later fixed, and bisect accuracy on runs where we injected a known break.*
+
+`agentbisect study` adds up the runs in `runs/` and writes `runs/study/study.html` (the lag chart and tables), `study.json` and `RESULTS.draft.md`. It starts no agent.
 
 ## Flaky tests and non-monotone histories
 
@@ -96,7 +98,7 @@ uv run agentbisect record --task tasks/t03.yaml --model flash
 
 The command sets up the run and prints what to do:
 
-1. Open the Alan app and start a conversation in the printed work folder.
+1. Open the Alan app and start a **new** conversation in the printed work folder. Use one new conversation per run. If Alan resumes an earlier conversation, `agentbisect run` warns and the study excludes that run.
 2. Pick the model it names.
 3. Paste the prompt (it is also saved in `runs/<id>/PROMPT.txt`).
 4. Let the agent work until it stops.
@@ -119,10 +121,10 @@ This spends credits. The command prints the model and the spend cap first, and `
 agentbisect record --task tasks/t03.yaml [--model flash] [--harness]   # set up a run in Alan Code (or run our own loop)
 agentbisect run    --trace runs/<id> [--check "<cmd>"]     # bisect; with no --check, find newly failing tests
 agentbisect report --trace runs/<id> [--explain]           # write runs/<id>/report.html
-agentbisect study  --suite tasks/ --models qwen,flash,glm,kimi --repeats 1   # batch runs and statistics (M3)
+agentbisect study  [--runs runs] [--rebisect] [--models flash]   # add up recorded runs: statistics, study.html, RESULTS.draft.md
 ```
 
-`run` exits 0 if it found a culprit and 1 if nothing could be bisected.
+`run` exits 0 if it found a culprit and 1 if nothing could be bisected. `study` exits 1 when the runs folder holds no usable run. It never starts an agent: you record runs by hand, then `study` adds them up. `--models` keeps only runs of the given model aliases, and `--suite tasks/` keeps only tasks that have a YAML there. `--rebisect` bisects every run again instead of reusing its `bisect.json`.
 
 ## Development
 
