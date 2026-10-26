@@ -82,3 +82,13 @@ acceptance criteria below, a line in `docs/PROGRESS.md`, and a commit.
 | 40–55s | Architecture diagram: snapshot every step → bisect with the test → deterministic verdict. |
 | 55–80s | The finding: "Across N runs on open models, agents kept working X steps (Y% of tokens) after breaking the code." Plus sabotage accuracy. |
 | 80–90s | Repo link, "open models via Alan AI", one-command quickstart. |
+
+## Change of plan (Mon, after M1)
+
+Alan AI offers no API keys. The agent under test is now **Alan Code** (OpenCode inside the Alan app, open models
+via Alan), recorded by an OpenCode plugin that `agentbisect record` places in the task folder. The human starts each
+run in the Alan app. Consequences:
+
+- M2: one real Alan Code run (started by the human) replaces the "one real run to measure cost".
+- M3: about 16–20 hand-started runs instead of about 40. Design and claims in METHODS §8. Sabotage runs stay.
+- The own harness on `llm.py` + `FakeLLM` stays as a tested backup for any OpenAI-compatible endpoint.
