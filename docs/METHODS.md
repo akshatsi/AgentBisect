@@ -538,101 +538,94 @@ a: 19 × $0.024 = $0.456; b: 10 × $0.23 = $2.30; total $2.756; with margin $3.4
 
 ## 8. Study design under a small, hand-run budget
 
-The agent under test is Alan Code (OpenCode in the Alan app). The human starts each run by hand,
-and runs bill the human's Alan account, so the `$8` cap in §7 does not apply. Budget: about
-16–20 runs. §7's formula still gives a cost estimate once per-run prices are known.
+The agent under test is Alan Code (OpenCode in the Alan app), with **DeepSeek models only**. The
+human starts each run by hand and runs bill the human's Alan account, so the `$8` cap in §7 does
+not apply. Budget: about 19 runs. Pick variant A or B once we know which DeepSeek models Alan
+offers. Both use `stats.study_run_order(..., seed=20261026)`.
 
-### 8.1 Design: 2 models × 8 tasks + 3 sabotage runs = 19 runs
+### 8.1 What the first runs tell us: breaks are rare
 
-- **Models: `qwen` (Qwen3.8 27B) and `kimi` (Kimi K3).** Two models, not four: with 8 runs each
-  a per-model rate has a Wilson interval about ±0.3 wide; with 4 models and 4 runs each it
-  would be about ±0.4, which says nothing. Smallest against largest gives the best chance of a
-  visible difference on "does a bigger model notice sooner?". A weak model that breaks things
-  is useful here, since only broken runs carry lag data. Fallback: if `qwen`'s first run makes
-  no tool calls, replace it with `flash` (DeepSeek V4.1 Flash) for all its runs.
-- **Tasks: t01, t02, t04, t05, t06, t07, t08, t09.** Dropped: t03 and t10, the two smallest
-  single-function changes and the least likely to break an existing test. The 8 kept tasks
-  each touch code that existing tests cover (a rename, an enum swap, report formats, the
-  coupon table, stock handling).
-- **Repeats: 1.** Every run spent on a new task beats a repeat at this n.
-- **Sabotage: s01, s02, s03, one run each, on `qwen`** (likely the cheapest). They measure
-  bisect accuracy only and stay out of the lag analysis (§5.1).
+Two real Alan Code runs so far both ended green: t01 on `flash` (21 steps, ~460k tokens), and
+t04 on `qwen` (29 steps, contaminated, discarded). If about 1 run in 6 ends broken, 16 task runs
+give about 2–3 broken runs. That is below the §8.4 threshold (6), so **plan for the fallback
+reporting from the start**:
 
-### 8.2 Run order (seed 20261026)
+- **Primary headline: the broken-run share** with a Wilson interval. For example, 0/16 gives
+  (0, 0.19) and 2/16 gives (0.03, 0.36).
+- Show each broken run as a row (case study). Report no pooled Kaplan–Meier median unless the
+  threshold is met.
+- **The repaired-break series (§8.4) becomes the main lag evidence.** Green runs still contain
+  breaks the agent made, saw, and fixed. Bisecting steps `0..k` costs no Alan runs.
 
-Each task is a block with one run per model, so a drift over the day (model updates on Alan,
-the human's habits) hits both models alike. Block order and model order inside each block are
-shuffled; the sabotage runs are spread through the list. Reproduce with
-`stats.study_run_order(tasks, ["qwen", "kimi"], [("s01","qwen"), ("s02","qwen"), ("s03","qwen")], seed=20261026)`.
+### 8.2 Variant A: `flash` (DeepSeek V4.1 Flash) vs `deepseek-pro` (DeepSeek V4 Pro)
 
-| # | task | model | # | task | model | # | task | model |
-|---|---|---|---|---|---|---|---|---|
-| 1 | t04 | qwen | 8 | t05 | kimi | 15 | s01 | qwen |
-| 2 | t04 | kimi | 9 | t05 | qwen | 16 | t08 | qwen |
-| 3 | t01 | qwen | 10 | s02 | qwen | 17 | t08 | kimi |
-| 4 | t01 | kimi | 11 | t07 | qwen | 18 | t02 | qwen |
-| 5 | s03 | qwen | 12 | t07 | kimi | 19 | t02 | kimi |
-| 6 | t06 | qwen | 13 | t09 | qwen | | | |
-| 7 | t06 | kimi | 14 | t09 | kimi | | | |
+2 models × 8 tasks (t01, t02, t04, t05, t06, t07, t08, t09) + s01–s03 on `flash` = 19 runs. The
+models are a smaller and a larger version from one family. t03 and t10 are dropped: they are the
+smallest changes and the least likely to break a test.
 
-Run them in this order. If a run must be redone (crash, app error before step 1), redo it at
-once and note it; never reorder to fill gaps. Slot 20 is a spare for one such redo.
+| # | run | # | run | # | run | # | run |
+|---|---|---|---|---|---|---|---|
+| 1 | t04 flash | 6 | t06 flash | 11 | t07 flash | 16 | t08 flash |
+| 2 | t04 pro | 7 | t06 pro | 12 | t07 pro | 17 | t08 pro |
+| 3 | t01 flash | 8 | t05 pro | 13 | t09 flash | 18 | t02 flash |
+| 4 | t01 pro | 9 | t05 flash | 14 | t09 pro | 19 | t02 pro |
+| 5 | s03 flash | 10 | s02 flash | 15 | s01 flash | | |
 
-### 8.3 What the study can claim
+Per-model results are **descriptive only**. With 8 runs against 8, only a gap of about 60
+percentage points in a rate can reach p < 0.05 (0/8 against 5/8: Fisher p = 0.026). With 3 or
+fewer broken runs per model, no rank test on lag can reach p < 0.05. With rare breaks, expect
+"not distinguishable at this sample size".
 
-Pooled over both models (rows per §5.1):
+### 8.3 Variant B: `flash` only
 
-| Claim | Method | Example at this n |
-|---|---|---|
-| Broken-run share: X of 16 runs ended with a failing test | Wilson (§6.1) | 6/16 → 0.38 (0.18–0.61) |
-| Censoring rate: the agent never saw the break in C of K broken runs | Wilson | 3/6 → 0.50 (0.19–0.81) |
-| Median detection lag in steps | KM median, log-log CI (§5.3) | expect a wide CI, often "upper: not reached" |
-| Wasted-token share after the break | pooled ratio, seeded bootstrap (§6.2) | with K < 10 the percentile CI is too narrow; say so |
-| Bisect accuracy: injected step found in 3 of 3 sabotage runs | Wilson | 3/3 → **(0.44, 1.00)** |
+All 10 t-tasks once, plus a second run of the 6 tasks most likely to break an existing test, plus
+s01–s03 = 19 runs. The repeated tasks are t02 (rename across callers), t04 (report format),
+t05 (status enum), t07 (backorders), t08 (CSV must keep plain decimals) and t09 (coupon table
+shape). If the t01/flash run already recorded has a clean trace, it fills slot 8.
 
-3/3 correct only shows accuracy is probably above 44%. The strong accuracy evidence is the
-simulation (§8.5).
+| # | run | # | run | # | run | # | run |
+|---|---|---|---|---|---|---|---|
+| 1 | t10 | 6 | t05 | 11 | t09 | 16 | t02 (2nd) |
+| 2 | t06 | 7 | t07 | 12 | t07 (2nd) | 17 | t09 (2nd) |
+| 3 | t08 | 8 | t01 | 13 | t08 (2nd) | 18 | t05 (2nd) |
+| 4 | t04 | 9 | t02 | 14 | t03 | 19 | t04 (2nd) |
+| 5 | s03 | 10 | s02 | 15 | s01 | | |
 
-**Per-model results are descriptive only.** Report them in a table without a winner. Smallest
-differences that could reach p < 0.05:
+Rows from a repeated task are not independent. Pooled statistics stay one row per run, and the
+bootstrap resamples tasks, not runs (cluster bootstrap: `bootstrap_ci` with items = tasks).
 
-- **Proportions, 8 vs 8 runs:** 0/8 against 5/8 (Fisher two-sided p = 0.026); 0/8 against 4/8
-  gives p = 0.077. So only a gap of about **60 percentage points** can show.
-- **Lag:** with 3 or fewer broken runs per model, no two-sided rank test can reach p < 0.05,
-  even when every lag of one model is shorter than every lag of the other (smallest possible
-  p = 2/20 = 0.10). With 4 against 4, only complete separation reaches it (p = 2/70 = 0.029).
-  Run the global tests of §6.3 anyway and print the p-value with the words "not
-  distinguishable at this sample size" unless it is below 0.05.
+**Framing for one model:** every claim is about *DeepSeek V4.1 Flash, in Alan Code, on this
+fixture library and these tasks*. Write "Flash broke an existing test in X of 16 runs", never
+"models break…". Variant B cannot say anything about model size.
 
-**Cannot claim:** that one model notices sooner, any ranking of models, or that the numbers
-hold beyond this fixture library and these 8 tasks.
+### 8.4 Runs that end green; the repaired-break series; threshold
 
-### 8.4 Runs that end green, and when to report the lag
+- A green run has no final break. It counts in the denominator of the broken-run share and
+  enters no censored-lag statistic.
+- **Repaired-break series (free, reported separately).** In every run (green or not), find each
+  agent shell step `k` whose output shows a §4.2 signal for a test that passes at step 0 and was
+  not already failing at the agent's previous test run. Bisect over steps `0..k` with that test
+  as the oracle (preconditions: pass at 0, fail at `k`). That gives `t_err`; then
+  `t_obs = k` or earlier per §4.3, and `lag = t_obs − t_err`, plus tokens spent between them.
+  These episodes are **never censored by construction**, because they are found only when the
+  agent saw them. So they measure "how long the agent took to see a break *that it did see*".
+  Report them as their own series: the number of episodes, the median lag, and a
+  cluster-bootstrap CI over runs (`bootstrap_ci`, items = runs, statistic = median over the
+  episodes in the resample, B = 2000, seed 0). **Never pool them** with §5's censored analysis.
+  They say nothing about breaks the agent never saw.
+- **Threshold for a pooled KM median:** at least 6 bisectable broken runs, of which at least 3
+  were observed. KM needs half the rows observed to give a median at all. With 6 runs the
+  censoring-rate interval is still ±0.3 wide. Below that, list each run as a row and give the
+  censoring count as k/K with its Wilson interval.
+- Topping up needs the human's approval, and RESULTS.md must then say the extra runs were chosen
+  after seeing the data.
 
-- A run whose final state passes the oracle has **no break**. It counts in the denominator of
-  the broken-run share (§8.3, first row), is not bisected, and enters no lag statistic.
-- **Self-observed breaks (free salvage, reported separately).** If a green run contains an agent
-  `pytest` step `s` whose output shows a failure signal (§4.2) for a test that passes at step 0,
-  bisect over steps `0..s` with that test as the oracle (precondition: pass at 0, fail at `s`).
-  This gives `t_err` and a lag, with no new Alan runs. Label these "breaks the agent saw and
-  repaired". **Never pool them** with the main lag analysis: they are found *because* the agent
-  saw them, so they are never censored and bias the lag downward.
-- **Threshold: report the pooled KM median only if there are at least 6 broken, bisectable
-  runs (status FOUND) and at least 3 of them are observed.** Reasons: KM needs S(t) ≤ 0.5 to
-  produce a median, which takes at least half the rows observed; with 6 rows the censoring-rate
-  Wilson interval is still about ±0.3 wide, the least that tells "most agents notice" apart from
-  "most do not"; below 6, one run moves the median by a large step.
-- **Below the threshold:** report each broken run as a row (task, model, `t_err`, `t_obs` or
-  "never", lag, wasted tokens) and the censoring count as k/K with its Wilson interval. No
-  median. Topping up with more runs needs the human's approval; if approved, add runs on the
-  tasks that broke most often, alternating models, and say in RESULTS.md that the top-up was
-  chosen after seeing the data.
+### 8.5 Bisect accuracy: sabotage plus free simulation
 
-### 8.5 Free supplementary evidence: simulation
-
-`tests/test_stats.py` runs the full §2.6 procedure on simulated monotone histories (n = 30,
-random `t_err`, 3000 runs per setting, seed 20261026). Results (§2.4): with a deterministic
-oracle the right step every time, using at most ⌈log₂ 30⌉ = 5 probes; with flip rate 0.1, the
-wrong step in 1.1% of runs; with 0.2, in 2.9%. Report this beside the 3/3 sabotage result,
-**labeled "simulation, not real agent runs"**. It shows that the method is correct; the
-sabotage runs show that the pipeline works on real traces.
+- **Sabotage:** 3 of 3 correct gives a Wilson interval of **(0.44, 1.00)**. That shows only that
+  the pipeline works on real traces.
+- **Simulation** (`tests/test_stats.py`, labeled "simulation, not real agent runs"): the full
+  §2.6 procedure on 3000 seeded histories, n = 30.
+  - Deterministic oracle: the right step every time, in at most 5 probes.
+  - Flip rate 0.1: the wrong step in 1.1% of histories.
+  - Flip rate 0.2: the wrong step in 2.9%.
