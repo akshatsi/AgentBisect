@@ -110,6 +110,7 @@ class SignalMatcher:
         else:
             # The check names no test (e.g. the whole suite): any failing test is the same test.
             self._p1.append(re.compile(r"^(?:FAILED|ERROR) \S"))
+            self._p1.append(re.compile(r"^\S+::\S+ (?:FAILED|ERROR)\b"))  # pytest -v lines
             self._p2.append(re.compile(r"^_{3,} \S.* _{3,}$"))
             self._p3.append(re.compile(r"^_{3,} ERROR collecting \S+ _{3,}$"))
         self._p4 = re.compile(r'File "([^"]+)", line \d+')

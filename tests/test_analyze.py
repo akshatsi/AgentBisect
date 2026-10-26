@@ -231,3 +231,11 @@ def test_analyze_rejects_results_that_are_not_found(tmp_path: Path) -> None:
 def test_failure_output_is_a_signal_for_its_own_check() -> None:
     out = pytest_failure_output(-1)
     assert SignalMatcher(CHECK, []).signal(shell(out)) is not None
+
+
+def test_whole_suite_check_matches_verbose_failure_line():
+    from agentbisect.analyze import SignalMatcher
+
+    m = SignalMatcher("python -m pytest -q", [])
+    assert m._line_matches("tests/test_x.py::test_f FAILED                [ 50%]")
+    assert not m._line_matches("tests/test_x.py::test_f PASSED                [ 50%]")
