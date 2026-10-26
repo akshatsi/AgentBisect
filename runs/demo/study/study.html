@@ -3,439 +3,1057 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>AgentBisect study</title>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem("agentbisect-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
 <style>
 :root {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f27; --muted: #5d6675; --line: #dde1e8;
-  --red: #c62828; --red-bg: #fdecec; --amber: #b26a00; --amber-bg: #fff4de;
-  --blue: #1a5fb4; --blue-bg: #e8f0fb; --green: #1b7a3d; --green-bg: #e6f5ea;
-  --code-bg: #f1f3f6; --shade: #fff0d6;
+  --bg: #f3f5f9; --bg2: #eaedf4; --panel: #ffffff; --panel2: #f7f8fb; --ink: #131824;
+  --muted: #566176; --line: #e0e4ec; --line2: #c9d0dc;
+  --accent: #5640e0; --accent-bg: #edebfd; --accent-ink: #ffffff;
+  --red: #c8283a; --red-bg: #fdecee; --red-solid: #d1323f;
+  --amber: #a85f00; --amber-bg: #fff3d9;
+  --blue: #1558c8; --blue-bg: #e6effd;
+  --green: #17803f; --green-bg: #e4f5ea;
+  --code-bg: #f3f5f9; --code-ink: #1d2433;
+  --add-bg: #e7f6ec; --add-ink: #0f5a2c; --add-gut: #cdeed9;
+  --del-bg: #fdecee; --del-ink: #8a1e2b; --del-gut: #f9d1d6;
+  --hunk-bg: #e6effd; --hunk-ink: #1558c8;
+  --tk-k: #8a2be2; --tk-s: #0b7a3b; --tk-c: #7b8497; --tk-n: #a85f00;
+  --shadow: 0 1px 2px rgba(20,28,45,.06), 0 8px 24px rgba(20,28,45,.06);
+  --hero: linear-gradient(135deg, #ecebff 0%, #ffffff 55%);
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
-    --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
-    --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
-    --code-bg: #0c0f14; --shade: #3a2c12;
+    --bg: #0b0e14; --bg2: #10141c; --panel: #151a23; --panel2: #1b212c; --ink: #e8ebf2;
+--muted: #9aa5b8; --line: #262d3a; --line2: #364052;
+--accent: #8f84ff; --accent-bg: #211f46; --accent-ink: #0b0e14;
+--red: #ff6b78; --red-bg: #34171c; --red-solid: #e5484d;
+--amber: #f2b45a; --amber-bg: #33270f;
+--blue: #6aa8ff; --blue-bg: #13253f;
+--green: #55d089; --green-bg: #11301f;
+--code-bg: #0d1118; --code-ink: #d7deea;
+--add-bg: #11301f; --add-ink: #9be6b6; --add-gut: #17432a;
+--del-bg: #34171c; --del-ink: #ffadb4; --del-gut: #4b2027;
+--hunk-bg: #13253f; --hunk-ink: #8fbaff;
+--tk-k: #c792ea; --tk-s: #a5d6a7; --tk-c: #7d8aa0; --tk-n: #f2b45a;
+--shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.25);
+--hero: linear-gradient(135deg, #1b1740 0%, #151a23 55%);
+color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
-  --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
-  --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
-  --code-bg: #0c0f14; --shade: #3a2c12;
+  --bg: #0b0e14; --bg2: #10141c; --panel: #151a23; --panel2: #1b212c; --ink: #e8ebf2;
+--muted: #9aa5b8; --line: #262d3a; --line2: #364052;
+--accent: #8f84ff; --accent-bg: #211f46; --accent-ink: #0b0e14;
+--red: #ff6b78; --red-bg: #34171c; --red-solid: #e5484d;
+--amber: #f2b45a; --amber-bg: #33270f;
+--blue: #6aa8ff; --blue-bg: #13253f;
+--green: #55d089; --green-bg: #11301f;
+--code-bg: #0d1118; --code-ink: #d7deea;
+--add-bg: #11301f; --add-ink: #9be6b6; --add-gut: #17432a;
+--del-bg: #34171c; --del-ink: #ffadb4; --del-gut: #4b2027;
+--hunk-bg: #13253f; --hunk-ink: #8fbaff;
+--tk-k: #c792ea; --tk-s: #a5d6a7; --tk-c: #7d8aa0; --tk-n: #f2b45a;
+--shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.25);
+--hero: linear-gradient(135deg, #1b1740 0%, #151a23 55%);
+color-scheme: dark;
 }
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-main { max-width: 980px; margin: 0 auto; padding: 16px; }
-header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-h1 { font-size: 18px; margin: 0; }
-h2 { font-size: 17px; margin: 0 0 10px; }
-.sub { color: var(--muted); font-size: 13px; margin: 4px 0 0; overflow-wrap: anywhere; }
-button.theme {
-  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
-  border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer;
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+h1, h2, h3, h4 { margin: 0; line-height: 1.25; }
+p { margin: 0; }
+a { color: var(--accent); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.wrap { max-width: 1140px; margin: 0 auto; padding: 0 20px; }
+#app { min-height: 100vh; }
+.boot { padding: 40px 20px; color: var(--muted); text-align: center; }
+
+/* top bar */
+.topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
+.topbar .wrap { display: flex; align-items: center; gap: 14px; height: 54px; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.01em; font-size: 16px; text-decoration: none; color: var(--ink); }
+.brand svg { color: var(--accent); }
+.brand small { font-weight: 500; color: var(--muted); font-size: 13px; letter-spacing: 0; }
+.topbar .grow { flex: 1; min-width: 0; }
+.crumb { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 9px; padding: 6px 12px;
+  font-size: 13.5px; font-weight: 600; line-height: 1.2; min-height: 34px; color: var(--ink);
+  transition: background .15s, border-color .15s, transform .1s;
 }
-section.card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 14px; margin: 14px 0;
+.btn:hover:not(:disabled) { background: var(--panel2); border-color: var(--muted); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.btn.icon { padding: 6px 9px; }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.ghost:hover:not(:disabled) { background: var(--bg2); border-color: var(--line); }
+.btn svg { flex: none; }
+
+/* cards */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.card.pad { padding: 18px 20px; }
+.section { margin: 18px 0; }
+.section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 10px; font-weight: 700; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.tiny { font-size: 12px; }
+
+/* chips and pills */
+.chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); max-width: 100%; }
+.chip b { color: var(--ink); font-weight: 600; }
+.chip code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.pill { display: inline-block; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); line-height: 20px; white-space: nowrap; }
+.pill.pass { color: var(--green); background: var(--green-bg); border-color: transparent; }
+.pill.fail { color: var(--red); background: var(--red-bg); border-color: transparent; }
+.pill.error, .pill.cens { color: var(--amber); background: var(--amber-bg); border-color: transparent; }
+.tag { display: inline-block; font-size: 11px; line-height: 17px; padding: 0 7px; border-radius: 5px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+.tag.dec { background: var(--red-solid); color: #fff; }
+.tag.obs { background: var(--blue); color: var(--panel); }
+.tag.brk { background: var(--amber-bg); color: var(--amber); }
+.tag.prb { background: var(--panel2); color: var(--muted); border: 1px solid var(--line); font-weight: 600; }
+.tag.sab { border: 1px dashed var(--amber); color: var(--amber); }
+.tag.fix { background: var(--green-bg); color: var(--green); }
+
+/* code */
+pre.code {
+  margin: 0; padding: 12px 14px; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line);
+  border-radius: 10px; font-size: 12.5px; line-height: 1.5; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.scope { border-left: 6px solid var(--blue); background: var(--blue-bg); }
-.scope p { margin: 4px 0; overflow-wrap: anywhere; }
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-.metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-.metric .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); overflow-wrap: anywhere; }
-.metric .v { font-size: 24px; font-weight: 650; overflow-wrap: anywhere; }
-.metric .v.na { font-size: 16px; color: var(--amber); }
-.metric .ci { font-size: 13px; }
-.metric .m { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.metric .sim { display: inline-block; font-size: 11px; padding: 0 6px; margin-top: 4px; border: 1px dashed var(--amber); color: var(--amber); border-radius: 4px; }
-.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
-.pill.pass { color: var(--green); background: var(--green-bg); }
-.pill.fail { color: var(--red); background: var(--red-bg); }
-.pill.cens { color: var(--amber); background: var(--amber-bg); border-style: dashed; border-color: var(--amber); }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 600; font-size: 12px; }
-td a { color: var(--blue); }
-.tablewrap { overflow-x: auto; }
-.note { font-size: 13px; color: var(--muted); margin: 6px 0; }
-.note.alert { color: var(--amber); }
-.chartwrap { overflow-x: auto; }
-svg.chart { display: block; min-width: 640px; width: 100%; height: auto; font: 12px system-ui, sans-serif; }
-svg.chart text { fill: var(--ink); }
-svg.chart .muted { fill: var(--muted); }
-svg.chart .axis { stroke: var(--line); stroke-width: 1; }
-svg.chart .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
-svg.chart .runend { stroke: var(--muted); stroke-width: 2; }
-svg.chart .span { stroke: var(--amber); stroke-width: 8; stroke-linecap: butt; }
-svg.chart .span.open { stroke: none; fill: var(--shade); }
-svg.chart .openbar { fill: var(--shade); stroke: var(--amber); stroke-width: 1.5; stroke-dasharray: 5 3; }
-svg.chart .arrow { fill: var(--amber); }
-svg.chart .err { fill: var(--red); }
-svg.chart .obs { fill: var(--blue); }
-svg.chart a:hover text { text-decoration: underline; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); margin: 0 0 8px; }
-.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -2px; }
-.legend .l-err { background: var(--red); border-radius: 50%; }
-.legend .l-obs { background: var(--blue); border-radius: 50%; }
-.legend .l-span { background: var(--amber); height: 6px; vertical-align: 0; }
-.legend .l-open { border: 1.5px dashed var(--amber); background: var(--shade); }
-.panel-sep { border-style: dashed; }
-ul.claims { margin: 6px 0; padding-left: 20px; }
-ul.claims li { margin: 3px 0; }
-.claimbox { border-left: 6px solid var(--amber); }
-.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
-@media (max-width: 520px) { main { padding: 12px 16px; } .metric .v { font-size: 21px; } }
+pre.code.nowrap { white-space: pre; overflow-wrap: normal; }
+.capbox { position: relative; }
+.capbox.capped pre.code { max-height: 15em; overflow: hidden; }
+.capbox.capped::after { content: ""; position: absolute; left: 1px; right: 1px; bottom: 33px; height: 40px; border-radius: 0 0 10px 10px; background: linear-gradient(transparent, var(--code-bg)); pointer-events: none; }
+.capbox .more { display: block; width: 100%; margin-top: 4px; }
+.cap { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 6px; }
+
+/* diff */
+.diff { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); font-size: 12.5px; }
+.diff .dfile { border-top: 1px solid var(--line); }
+.diff .dfile:first-child { border-top: 0; }
+.diff .dhead { display: flex; align-items: center; gap: 10px; padding: 7px 12px; background: var(--panel2); font-weight: 600; position: sticky; top: 0; }
+.diff .dhead .path { overflow-wrap: anywhere; flex: 1; font-size: 12.5px; }
+.diff .dhead .st { font-size: 12px; white-space: nowrap; }
+.diff .plus { color: var(--green); } .diff .minus { color: var(--red); }
+.diff .dscroll { overflow-x: auto; }
+.diff .dl { display: grid; grid-template-columns: 3.4em 3.4em 1.4em minmax(0, 1fr); line-height: 1.5; min-width: max-content; width: 100%; }
+.diff .dl > span { padding: 0 6px; }
+.diff .dl .ln { text-align: right; color: var(--muted); opacity: .85; user-select: none; background: var(--panel2); font-size: 11.5px; }
+.diff .dl .sg { text-align: center; user-select: none; }
+.diff .dl code { white-space: pre; padding-right: 14px; }
+.diff .dl.add { background: var(--add-bg); color: var(--add-ink); } .diff .dl.add .ln { background: var(--add-gut); color: var(--add-ink); }
+.diff .dl.del { background: var(--del-bg); color: var(--del-ink); } .diff .dl.del .ln { background: var(--del-gut); color: var(--del-ink); }
+.diff .dl.hunk { background: var(--hunk-bg); color: var(--hunk-ink); } .diff .dl.hunk .ln { background: var(--hunk-bg); }
+.diff .dl.note { color: var(--muted); font-style: italic; }
+.diff .tk-k { color: var(--tk-k); font-weight: 600; } .diff .tk-s { color: var(--tk-s); } .diff .tk-c { color: var(--tk-c); font-style: italic; } .diff .tk-n { color: var(--tk-n); }
+.diff .dl.add .tk-k, .diff .dl.del .tk-k { filter: saturate(1.2); }
+
+/* tables */
+.tablewrap { overflow-x: auto; border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; background: var(--panel2); }
+tbody tr:hover { background: var(--panel2); }
+tr:last-child td { border-bottom: 0; }
+
+.footer { color: var(--muted); font-size: 12.5px; padding: 26px 0 40px; text-align: center; }
+details > summary { cursor: pointer; }
+.notice { border-radius: 12px; padding: 12px 16px; border: 1px solid var(--line); background: var(--panel2); font-size: 14px; }
+.notice.warn { background: var(--amber-bg); border-color: transparent; color: var(--ink); }
+.notice.ok { background: var(--green-bg); border-color: transparent; }
+@media (max-width: 560px) {
+  .wrap { padding: 0 16px; }
+  .topbar .crumb { display: none; }
+  .btn { min-height: 38px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* ---- study page ---- */
+.landing { background: var(--hero); border-bottom: 1px solid var(--line); }
+.landing .wrap { padding-top: 46px; padding-bottom: 38px; }
+.kicker { font-size: 12.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+.landing h1 { font-size: clamp(38px, 7vw, 64px); letter-spacing: -.035em; font-weight: 800; line-height: 1.02; display: flex; align-items: center; gap: 16px; }
+.landing h1 svg { width: clamp(40px, 6vw, 58px); height: auto; color: var(--accent); flex: none; }
+.pitch { font-size: clamp(18px, 2.6vw, 23px); line-height: 1.4; margin-top: 16px; max-width: 34em; font-weight: 500; }
+.pitch2 { color: var(--muted); max-width: 44em; margin-top: 10px; font-size: 15.5px; }
+.landing .chips { margin-top: 22px; }
+.how { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
+.how > div { background: color-mix(in srgb, var(--panel) 75%, transparent); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+.how b { display: flex; align-items: center; gap: 8px; font-size: 14.5px; margin-bottom: 3px; }
+.how .num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 800; }
+
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.runcard { display: flex; flex-direction: column; gap: 8px; padding: 20px; text-decoration: none; color: var(--ink); position: relative; transition: transform .15s, border-color .15s, box-shadow .15s; }
+.runcard:hover { transform: translateY(-3px); border-color: var(--accent); }
+.runcard .rtag { align-self: flex-start; font-size: 11.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; background: var(--red-bg); color: var(--red); }
+.runcard .rtag.ok { background: var(--green-bg); color: var(--green); }
+.runcard .rtag.warn { background: var(--amber-bg); color: var(--amber); }
+.runcard h3 { font-size: 18px; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.runcard .v1 { font-size: 15.5px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.runcard .v2 { font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.runcard .rmeta { font-size: 12.5px; color: var(--muted); margin-top: auto; padding-top: 6px; }
+.runcard .open { font-weight: 700; color: var(--accent); display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.metric { padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+.metric .k { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; overflow-wrap: anywhere; }
+.metric .v { font-size: 34px; font-weight: 780; letter-spacing: -.025em; line-height: 1.15; overflow-wrap: anywhere; }
+.metric .v.na { font-size: 19px; color: var(--amber); letter-spacing: 0; padding: 7px 0; }
+.metric .ciline { font-size: 13px; color: var(--ink); }
+.metric .m { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.metric .sim { align-self: flex-start; font-size: 11.5px; padding: 1px 8px; margin-top: 4px; border: 1px dashed var(--amber); color: var(--amber); border-radius: 6px; font-weight: 600; }
+.cirail { position: relative; height: 8px; border-radius: 5px; background: var(--line); margin-top: 8px; }
+.cirail i { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 5px; min-width: 3px; }
+.cirail b { position: absolute; top: -3px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--accent); border: 2.5px solid var(--panel); }
+.ciaxis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+.panel { padding: 18px 20px; }
+.panel.sep { border-style: dashed; border-color: var(--line2); }
+.panel h2.t { font-size: 17px; font-weight: 750; text-transform: none; letter-spacing: -.01em; color: var(--ink); margin-bottom: 4px; }
+.panel .lede { font-size: 14px; color: var(--muted); margin-bottom: 14px; max-width: 60em; }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+.keys span { display: inline-flex; align-items: center; gap: 7px; }
+.keys i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+.keys .k-err { background: var(--red-solid); } .keys .k-obs { background: var(--blue); }
+.keys .k-span { width: 18px; height: 7px; border-radius: 3px; background: var(--amber); }
+.keys .k-open { width: 18px; height: 9px; border-radius: 3px; border: 1.5px dashed var(--amber); background: var(--amber-bg); }
+
+.lagchart { position: relative; padding-top: 22px; }
+.laxis { position: absolute; left: 0; right: 0; top: 0; height: 18px; display: grid; grid-template-columns: 230px minmax(0, 1fr); }
+.laxis .ticks { position: relative; margin-right: 22px; }
+.laxis .ticks span { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--muted); }
+.lrow { position: relative; display: grid; grid-template-columns: 230px minmax(0, 1fr); align-items: center; gap: 0; min-height: 52px; border-radius: 8px; outline-offset: -2px; }
+.lrow:hover, .lrow:focus-visible { background: var(--panel2); z-index: 5; }
+.llabel { padding-right: 14px; font-size: 13.5px; display: grid; gap: 1px; min-width: 0; }
+.llabel a, .llabel .nm { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.3; font-weight: 600; color: var(--ink); text-decoration: none; }
+.llabel a:hover { color: var(--accent); text-decoration: underline; }
+.llabel .ltext { color: var(--muted); font-size: 12.5px; }
+.ltrack { position: relative; height: 52px; margin-right: 22px; }
+.ltrack .gl { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--line); }
+.ltrack .runend { position: absolute; top: 15px; bottom: 15px; width: 3px; margin-left: -1px; background: var(--line2); border-radius: 2px; }
+.ltrack .span { position: absolute; top: 22px; height: 8px; background: var(--amber); border-radius: 4px; }
+.ltrack .open { position: absolute; top: 20px; height: 12px; border: 1.5px dashed var(--amber); background: var(--amber-bg); border-radius: 4px; }
+.ltrack .arrowhead { position: absolute; top: 16px; width: 0; height: 0; border-left: 14px solid var(--amber); border-top: 10px solid transparent; border-bottom: 10px solid transparent; }
+.ltrack .dot { position: absolute; top: 18px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; border: 2.5px solid var(--panel); }
+.ltrack .dot.err { background: var(--red-solid); } .ltrack .dot.obs { background: var(--blue); }
+.tip { display: none; position: absolute; left: 230px; top: calc(100% - 2px); z-index: 10; max-width: min(520px, calc(100% - 240px)); padding: 8px 12px; font-size: 12.5px; background: var(--ink); color: var(--bg); border-radius: 8px; box-shadow: var(--shadow); overflow-wrap: anywhere; pointer-events: none; }
+.lrow:hover .tip, .lrow:focus .tip, .lrow:focus-within .tip { display: block; }
+.chartwrap { overflow-x: visible; }
+
+.tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.tools input { font: inherit; font-size: 14px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); min-height: 38px; min-width: 220px; -webkit-appearance: none; appearance: none; }
+th button { all: unset; cursor: pointer; display: inline-flex; gap: 5px; align-items: center; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; border-radius: 4px; }
+th button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+th .arrow { font-size: 10px; opacity: .35; } th[aria-sort="ascending"] .arrow, th[aria-sort="descending"] .arrow { opacity: 1; color: var(--accent); }
+td a { color: var(--accent); font-weight: 600; text-decoration: none; } td a:hover { text-decoration: underline; }
+td.num { font-variant-numeric: tabular-nums; }
+td.nw { white-space: nowrap; }
+td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.claims { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; }
+.claims h3 { font-size: 14px; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.claims ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.claims li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; font-size: 14px; }
+.claims li svg { margin-top: 3px; }
+.claims .yes svg { color: var(--green); } .claims .no svg { color: var(--red); }
+.claimbox { border-left: 5px solid var(--amber); }
+
+@media (max-width: 860px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .how { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .laxis, .lrow { grid-template-columns: minmax(0, 1fr); }
+  .laxis { display: block; position: relative; height: 18px; }
+  .laxis .ticks { margin-left: 0; }
+  .lrow { padding-top: 6px; }
+  .llabel { display: flex; justify-content: space-between; gap: 10px; padding-right: 0; align-items: baseline; }
+  .llabel .ltext { flex: none; }
+  .ltrack { margin-top: -2px; }
+  .tip { left: 0; max-width: 100%; }
+  .landing .wrap { padding-top: 32px; padding-bottom: 26px; }
+  .metric .v { font-size: 30px; }
+}
+
 </style>
 </head>
 <body>
-<main>
-<header class="top">
-  <div>
-    <h1>AgentBisect study</h1>
-    <p class="sub">2026-10-26 18:48 UTC &middot; METHODS §8 variant B: DeepSeek V4.1 Flash only in Alan Code, the 10 t-tasks plus 6 repeats (16 task runs) and 3 sabotage runs; sabotage runs count for accuracy, not for lag.</p>
-  </div>
-  <button class="theme" id="theme" type="button">Light / dark</button>
-</header>
+<div id="app"><p class="boot">Loading the report&hellip;</p></div>
+<noscript>
+<style>#app { display: none; }</style>
+<main style="max-width: 980px; margin: 0 auto; padding: 16px; font-family: system-ui, sans-serif;">
+  <h1>AgentBisect study</h1>
+  <p>git bisect for coding agents. This page is interactive and needs JavaScript; the numbers are below as plain text.</p>
+  <p>2026-10-26 18:48 UTC &middot; METHODS §8 variant B: DeepSeek V4.1 Flash only in Alan Code, the 10 t-tasks plus 6 repeats (16 task runs) and 3 sabotage runs; sabotage runs count for accuracy, not for lag.</p>
 
-<section class="card scope">
   <h2>Scope</h2>
   <p>Every claim here is about flash in Alan Code, on this fixture library and these tasks. It says nothing about other models, other agents, or other code.</p>
   <p>6 runs counted,
      1 ended broken, 1 excluded.</p>
-</section>
 
-<section class="card">
+  <h2>Demo runs</h2>
+  <ul>
+    <li><a href="../humanize-planted-break/report.html">humanize-planted-break</a>: Step 8 (shell: python -m pytest -q --doctest-modules src/humanize/lists.py) broke 3 tests: test_naturalsize[test_args1-1.0 kB], test_naturalsize[test_args2-1.0 kB], test_naturalsize[test_args56-1.0K]. This was the agent&#39;s last step, so it had no chance to see the failure. The run ended with the tests broken.</li>
+    <li><a href="../caught-and-fixed/report.html">caught-and-fixed</a>: Step 9 (edit tests/test_report.py) broke test_cancel_restores_stock. The agent saw it at step 13 and fixed it before the end. 4 steps and 112k tokens went into broken code first.</li>
+    <li><a href="../humanize-ordinal-fix/report.html">humanize-ordinal-fix</a>: No test that passed at the start fails at the end. The agent worked for 70 steps and the run ended green.</li>
+  </ul>
+
   <h2>Headline numbers</h2>
-  <div class="metrics">
-    <div class="metric">
-      <div class="k">Runs</div>
-      <div class="v">6</div>
-      <div class="m">n = 6 &middot; count</div>
-<div class="m">4 task runs, 2 sabotage runs (1 directories excluded)</div>    </div>
-    <div class="metric">
-      <div class="k">Broken-run share</div>
-      <div class="v">0%</div>
-<div class="ci mono">95% CI [0%, 49%]</div>      <div class="m">n = 4 &middot; Wilson 95%</div>
-<div class="m">0/4: runs whose final state fails the oracle / task runs (sabotage runs excluded)</div>    </div>
-    <div class="metric">
-      <div class="k">Bisectable share of broken runs</div>
-      <div class="v na">not estimable</div>
-      <div class="m">n = 0 &middot; Wilson 95%</div>
-<div class="m">no data: broken runs with at least one culprit found / broken runs</div>    </div>
-    <div class="metric">
-      <div class="k">Censoring rate of broken runs</div>
-      <div class="v na">not estimable</div>
-      <div class="m">n = 0 &middot; Wilson 95%</div>
-<div class="m">no data: runs where the agent never saw the failure / bisectable broken runs</div>    </div>
-    <div class="metric">
-      <div class="k">Noticed at once (lag 0)</div>
-      <div class="v na">not estimable</div>
-      <div class="m">n = 0 &middot; Wilson 95%</div>
-<div class="m">no data: bisectable broken runs where the failing step itself showed the failure (1 - S(0), METHODS §5.2)</div>    </div>
-    <div class="metric">
-      <div class="k">Detection lag, Kaplan-Meier median (steps)</div>
-      <div class="v na">not estimable</div>
-      <div class="m">n = 0 &middot; Kaplan-Meier, Greenwood log-log 95% band (METHODS §5)</div>
-<div class="m">not estimated: 0 bisectable broken runs (0 observed); METHODS §8.4 needs at least 6 and 3 observed. Each run is listed as a row instead.</div>    </div>
-    <div class="metric">
-      <div class="k">Wasted-token share (pooled)</div>
-      <div class="v na">not estimable</div>
-      <div class="m">n = 0 &middot; pooled ratio</div>
-<div class="m">no bisectable run</div>    </div>
-    <div class="metric">
-      <div class="k">Wasted-token share (median per run)</div>
-      <div class="v na">not estimable</div>
-      <div class="m">n = 0 &middot; median</div>
-<div class="m">no bisectable run</div>    </div>
-    <div class="metric">
-      <div class="k">No opportunity to observe (break on last step)</div>
-      <div class="v">0</div>
-      <div class="m">n = 0 &middot; count</div>
-<div class="m">0 of 0 bisectable broken task runs; left out of the censoring rate, the Kaplan-Meier curve and the wasted-token share (METHODS §4.4). Sabotage runs with this flag: 1.</div>    </div>
-    <div class="metric">
-      <div class="k">Sabotage accuracy</div>
-      <div class="v">100%</div>
-<div class="ci mono">95% CI [34%, 100%]</div>      <div class="m">n = 2 &middot; Wilson 95%</div>
-<div class="m">2/2: sabotage runs where the final-state culprit or a break the agent saw has the injected step as its decisive step / sabotage runs that fail at the end or show a seen break (not bisectable counts as wrong)</div>    </div>
-    <div class="metric">
-      <div class="k">Repaired-break episodes</div>
-      <div class="v">0</div>
-      <div class="m">n = 0 &middot; count (METHODS §8.4)</div>
-    </div>
-    <div class="metric">
-      <div class="k">Repaired-break lag, median (steps)</div>
-      <div class="v na">not estimable</div>
-      <div class="m">n = 0 &middot; median over episodes; cluster bootstrap over runs, B=2000, seed 0 (METHODS §8.4)</div>
-<div class="m">no episodes</div>    </div>
-  </div>
-</section>
+  <ul>
+    <li><strong>Runs</strong>: 6,
+      n = 6, count. 4 task runs, 2 sabotage runs (1 directories excluded)</li>
+    <li><strong>Broken-run share</strong>: 0% (95% CI [0%, 49%]),
+      n = 4, Wilson 95%. 0/4: runs whose final state fails the oracle / task runs (sabotage runs excluded)</li>
+    <li><strong>Bisectable share of broken runs</strong>: not estimable,
+      n = 0, Wilson 95%. no data: broken runs with at least one culprit found / broken runs</li>
+    <li><strong>Censoring rate of broken runs</strong>: not estimable,
+      n = 0, Wilson 95%. no data: runs where the agent never saw the failure / bisectable broken runs</li>
+    <li><strong>Noticed at once (lag 0)</strong>: not estimable,
+      n = 0, Wilson 95%. no data: bisectable broken runs where the failing step itself showed the failure (1 - S(0), METHODS §5.2)</li>
+    <li><strong>Detection lag, Kaplan-Meier median (steps)</strong>: not estimable,
+      n = 0, Kaplan-Meier, Greenwood log-log 95% band (METHODS §5). not estimated: 0 bisectable broken runs (0 observed); METHODS §8.4 needs at least 6 and 3 observed. Each run is listed as a row instead.</li>
+    <li><strong>Wasted-token share (pooled)</strong>: not estimable,
+      n = 0, pooled ratio. no bisectable run</li>
+    <li><strong>Wasted-token share (median per run)</strong>: not estimable,
+      n = 0, median. no bisectable run</li>
+    <li><strong>No opportunity to observe (break on last step)</strong>: 0,
+      n = 0, count. 0 of 0 bisectable broken task runs; left out of the censoring rate, the Kaplan-Meier curve and the wasted-token share (METHODS §4.4). Sabotage runs with this flag: 1.</li>
+    <li><strong>Sabotage accuracy</strong>: 100% (95% CI [34%, 100%]),
+      n = 2, Wilson 95%. 2/2: sabotage runs where the final-state culprit or a break the agent saw has the injected step as its decisive step / sabotage runs that fail at the end or show a seen break (not bisectable counts as wrong)</li>
+    <li><strong>Repaired-break episodes</strong>: 0,
+      n = 0, count (METHODS §8.4)</li>
+    <li><strong>Repaired-break lag, median (steps)</strong>: not estimable,
+      n = 0, median over episodes; cluster bootstrap over runs, B=2000, seed 0 (METHODS §8.4). no episodes</li>
+  </ul>
 
-<section class="card">
   <h2>Detection lag in broken runs</h2>
-  <p class="legend">
-    <span><i class="l-err"></i>step that broke the code</span>
-    <span><i class="l-obs"></i>step where the agent first saw the failure</span>
-    <span><i class="l-span"></i>steps spent on broken code</span>
-    <span><i class="l-open"></i>open end: the agent never saw it (censored)</span>
-  </p>
-<div class="chartwrap">
-<svg class="chart" viewBox="0 0 870 136" role="img" aria-label="Steps between the break and the first sighting, one row per run">
-  <line class="grid" x1="220.0" x2="220.0" y1="22" y2="114"/>
-  <text class="muted" x="220.0" y="14" text-anchor="middle">0</text>
-  <line class="grid" x1="285.0" x2="285.0" y1="22" y2="114"/>
-  <text class="muted" x="285.0" y="14" text-anchor="middle">1</text>
-  <line class="grid" x1="350.0" x2="350.0" y1="22" y2="114"/>
-  <text class="muted" x="350.0" y="14" text-anchor="middle">2</text>
-  <line class="grid" x1="415.0" x2="415.0" y1="22" y2="114"/>
-  <text class="muted" x="415.0" y="14" text-anchor="middle">3</text>
-  <line class="grid" x1="480.0" x2="480.0" y1="22" y2="114"/>
-  <text class="muted" x="480.0" y="14" text-anchor="middle">4</text>
-  <line class="grid" x1="545.0" x2="545.0" y1="22" y2="114"/>
-  <text class="muted" x="545.0" y="14" text-anchor="middle">5</text>
-  <line class="grid" x1="610.0" x2="610.0" y1="22" y2="114"/>
-  <text class="muted" x="610.0" y="14" text-anchor="middle">6</text>
-  <line class="grid" x1="675.0" x2="675.0" y1="22" y2="114"/>
-  <text class="muted" x="675.0" y="14" text-anchor="middle">7</text>
-  <line class="grid" x1="740.0" x2="740.0" y1="22" y2="114"/>
-  <text class="muted" x="740.0" y="14" text-anchor="middle">8</text>
-  <line class="axis" x1="220" x2="740" y1="114" y2="114"/>
-  <g>
-    <title>humanize-planted-break: python -m pytest -q &#39;tests/test_filesize.py::test_naturalsize[test_args1-1.0 kB]&#39; broke at step 8; censored, never seen (n=8)</title>
-<a href="../humanize-planted-break/report.html">    <text x="210" y="48.0" text-anchor="end">humanize  test_naturalsize[te…</text>
-</a>    <line class="runend" x1="740.0" x2="740.0" y1="36.0" y2="52.0"/>
-    <rect class="openbar" x="740.0" y="39.0" width="2" height="10"/>
-    <polygon class="arrow" points="740.0,36.0 752.0,44.0 740.0,52.0"/>
-    <circle class="err" cx="740.0" cy="44.0" r="5"/>
-    <text class="muted" x="758.0" y="48.0">censored, never seen (n=8)</text>
-  </g>
-  <g>
-    <title>humanize-planted-break: python -m pytest -q &#39;tests/test_filesize.py::test_naturalsize[test_args2-1.0 kB]&#39; broke at step 8; censored, never seen (n=8)</title>
-<a href="../humanize-planted-break/report.html">    <text x="210" y="76.0" text-anchor="end">humanize  test_naturalsize[te…</text>
-</a>    <line class="runend" x1="740.0" x2="740.0" y1="64.0" y2="80.0"/>
-    <rect class="openbar" x="740.0" y="67.0" width="2" height="10"/>
-    <polygon class="arrow" points="740.0,64.0 752.0,72.0 740.0,80.0"/>
-    <circle class="err" cx="740.0" cy="72.0" r="5"/>
-    <text class="muted" x="758.0" y="76.0">censored, never seen (n=8)</text>
-  </g>
-  <g>
-    <title>humanize-planted-break: python -m pytest -q &#39;tests/test_filesize.py::test_naturalsize[test_args56-1.0K]&#39; broke at step 8; censored, never seen (n=8)</title>
-<a href="../humanize-planted-break/report.html">    <text x="210" y="104.0" text-anchor="end">humanize  test_naturalsize[te…</text>
-</a>    <line class="runend" x1="740.0" x2="740.0" y1="92.0" y2="108.0"/>
-    <rect class="openbar" x="740.0" y="95.0" width="2" height="10"/>
-    <polygon class="arrow" points="740.0,92.0 752.0,100.0 740.0,108.0"/>
-    <circle class="err" cx="740.0" cy="100.0" r="5"/>
-    <text class="muted" x="758.0" y="104.0">censored, never seen (n=8)</text>
-  </g>
-</svg>
-</div>  <p class="note">The horizontal axis counts steps. A grey tick marks where each run ended.</p>
-</section>
+  <ul><li>humanize-planted-break: python -m pytest -q &#39;tests/test_filesize.py::test_naturalsize[test_args1-1.0 kB]&#39; broke at step 8; last step, no chance to see it (n=8)</li><li>humanize-planted-break: python -m pytest -q &#39;tests/test_filesize.py::test_naturalsize[test_args2-1.0 kB]&#39; broke at step 8; last step, no chance to see it (n=8)</li><li>humanize-planted-break: python -m pytest -q &#39;tests/test_filesize.py::test_naturalsize[test_args56-1.0K]&#39; broke at step 8; last step, no chance to see it (n=8)</li></ul>
 
-<section class="card panel-sep">
   <h2>Repaired breaks (a separate series)</h2>
-  <p class="note">The agent broke a test that passed at the start, saw the failure, and fixed it.
-    We find these only when the agent saw them, so none is censored. They say nothing about breaks
-    the agent never saw. Never pool this series with the broken runs above.</p>
-  <p class="legend">
-    <span><i class="l-err"></i>step that broke the test</span>
-    <span><i class="l-obs"></i>step where the agent saw the failure</span>
-    <span><i class="l-span"></i>steps before it saw it</span>
-  </p>
-<div class="chartwrap">
-<svg class="chart" viewBox="0 0 870 80" role="img" aria-label="Steps between the break and the first sighting, one row per run">
-  <line class="grid" x1="220.0" x2="220.0" y1="22" y2="58"/>
-  <text class="muted" x="220.0" y="14" text-anchor="middle">0</text>
-  <line class="grid" x1="300.0" x2="300.0" y1="22" y2="58"/>
-  <text class="muted" x="300.0" y="14" text-anchor="middle">2</text>
-  <line class="grid" x1="380.0" x2="380.0" y1="22" y2="58"/>
-  <text class="muted" x="380.0" y="14" text-anchor="middle">4</text>
-  <line class="grid" x1="460.0" x2="460.0" y1="22" y2="58"/>
-  <text class="muted" x="460.0" y="14" text-anchor="middle">6</text>
-  <line class="grid" x1="540.0" x2="540.0" y1="22" y2="58"/>
-  <text class="muted" x="540.0" y="14" text-anchor="middle">8</text>
-  <line class="grid" x1="620.0" x2="620.0" y1="22" y2="58"/>
-  <text class="muted" x="620.0" y="14" text-anchor="middle">10</text>
-  <line class="grid" x1="700.0" x2="700.0" y1="22" y2="58"/>
-  <text class="muted" x="700.0" y="14" text-anchor="middle">12</text>
-  <line class="axis" x1="220" x2="740" y1="58" y2="58"/>
-  <g>
-    <title>caught-and-fixed: python -m pytest -q tests/test_orders.py::test_cancel_restores_stock broke at step 9, seen at step 13; lag 4</title>
-<a href="../caught-and-fixed/report.html">    <text x="210" y="48.0" text-anchor="end">caught-and-fixed  test_cancel…</text>
-</a>    <line class="runend" x1="740.0" x2="740.0" y1="36.0" y2="52.0"/>
-    <line class="span" x1="580.0" x2="740.0" y1="44.0" y2="44.0"/>
-    <circle class="err" cx="580.0" cy="44.0" r="5"/>
-    <circle class="obs" cx="740.0" cy="44.0" r="5"/>
-    <text class="muted" x="752.0" y="48.0">lag 4</text>
-  </g>
-</svg>
-</div>  <div class="tablewrap">
+  <p>The agent broke a test that passed at the start, saw the failure, and fixed it. We find these only when the agent saw them, so none is censored. They say nothing about breaks the agent never saw. Never pool this series with the broken runs above.</p>
   <table>
     <thead><tr><th>Run</th><th>Test</th><th>Seen at</th><th>t_err</th><th>Lag</th><th>Tokens wasted</th><th>Note</th></tr></thead>
     <tbody>
-    <tr>
-      <td class="mono"><a href="../caught-and-fixed/report.html">caught-and-fixed</a></td>
-      <td class="mono">test_cancel_restores_stock</td>
-      <td>13</td><td>9</td><td>4</td><td>112,179</td>
-      <td></td>
-    </tr>
+    <tr><td><a href="../caught-and-fixed/report.html">caught-and-fixed</a></td>
+      <td>test_cancel_restores_stock</td><td>13</td><td>9</td><td>4</td><td>112,179</td><td></td></tr>
     </tbody>
   </table>
-  </div>
-</section>
 
-<section class="card">
   <h2>Runs</h2>
-  <div class="tablewrap">
   <table>
-    <thead><tr>
-      <th>Task</th><th>Run</th><th>Test</th><th>Steps</th><th>Broken?</th><th>t_err</th><th>t_obs</th>
-      <th>Lag</th><th>Wasted share</th><th>Sabotage correct</th>
-    </tr></thead>
+    <thead><tr><th>Task</th><th>Run</th><th>Test</th><th>Steps</th><th>Broken?</th><th>t_err</th><th>t_obs</th><th>Lag</th><th>Wasted share</th><th>Sabotage correct</th></tr></thead>
     <tbody>
-    <tr>
-      <td>t01</td>
-      <td class="mono"><a href="../t01-flash-20261026-095102/report.html">t01-flash-20261026-095102</a></td>
-      <td class="mono">-</td>
-      <td>21</td>
-      <td><span class="pill pass">no</span></td>
-      <td>-</td><td>-</td>
-      <td>-</td>
-      <td>-</td>
-      <td>-</td>
-    </tr>
-    <tr>
-      <td>t10</td>
-      <td class="mono"><a href="../t10-flash-20261026-132009/report.html">t10-flash-20261026-132009</a></td>
-      <td class="mono">-</td>
-      <td>10</td>
-      <td><span class="pill pass">no</span></td>
-      <td>-</td><td>-</td>
-      <td>-</td>
-      <td>-</td>
-      <td>-</td>
-    </tr>
-    <tr>
-      <td>t06</td>
-      <td class="mono"><a href="../t06-flash-20261026-132352/report.html">t06-flash-20261026-132352</a></td>
-      <td class="mono">-</td>
-      <td>18</td>
-      <td><span class="pill pass">no</span></td>
-      <td>-</td><td>-</td>
-      <td>-</td>
-      <td>-</td>
-      <td>-</td>
-    </tr>
-    <tr>
-      <td>t08</td>
-      <td class="mono"><a href="../t08-flash-20261026-133042/report.html">t08-flash-20261026-133042</a></td>
-      <td class="mono">-</td>
-      <td>18</td>
-      <td><span class="pill pass">no</span></td>
-      <td>-</td><td>-</td>
-      <td>-</td>
-      <td>-</td>
-      <td>-</td>
-    </tr>
-    <tr>
-      <td>s03</td>
-      <td class="mono"><a href="../caught-and-fixed/report.html">caught-and-fixed</a></td>
-      <td class="mono">-</td>
-      <td>19</td>
-      <td><span class="pill pass">no</span></td>
-      <td>-</td><td>-</td>
-      <td>-</td>
-      <td>-</td>
-      <td><span class="pill pass">found step 9</span></td>
-    </tr>
-    <tr>
-      <td>humanize</td>
-      <td class="mono"><a href="../humanize-planted-break/report.html">humanize-planted-break</a></td>
-      <td class="mono">test_naturalsize[test_args1-1.0 kB]</td>
-      <td>8</td>
-      <td><span class="pill fail">yes</span></td>
-      <td>8</td><td>-</td>
-      <td><span class="pill cens">censored (never seen, 0 steps)</span></td>
-      <td>0.0%</td>
-      <td><span class="pill pass">found step 8</span></td>
-    </tr>
-    <tr>
-      <td>humanize</td>
-      <td class="mono"><a href="../humanize-planted-break/report.html">humanize-planted-break</a></td>
-      <td class="mono">test_naturalsize[test_args2-1.0 kB]</td>
-      <td>8</td>
-      <td><span class="pill fail">yes</span></td>
-      <td>8</td><td>-</td>
-      <td><span class="pill cens">censored (never seen, 0 steps)</span></td>
-      <td>0.0%</td>
-      <td><span class="pill pass">found step 8</span></td>
-    </tr>
-    <tr>
-      <td>humanize</td>
-      <td class="mono"><a href="../humanize-planted-break/report.html">humanize-planted-break</a></td>
-      <td class="mono">test_naturalsize[test_args56-1.0K]</td>
-      <td>8</td>
-      <td><span class="pill fail">yes</span></td>
-      <td>8</td><td>-</td>
-      <td><span class="pill cens">censored (never seen, 0 steps)</span></td>
-      <td>0.0%</td>
-      <td><span class="pill pass">found step 8</span></td>
-    </tr>
+    <tr><td>t01</td>
+      <td><a href="../t01-flash-20261026-095102/report.html">t01-flash-20261026-095102</a></td>
+      <td>-</td><td>21</td><td>no</td><td>-</td><td>-</td>
+      <td>-</td><td>-</td><td>-</td></tr>
+    <tr><td>t10</td>
+      <td><a href="../t10-flash-20261026-132009/report.html">t10-flash-20261026-132009</a></td>
+      <td>-</td><td>10</td><td>no</td><td>-</td><td>-</td>
+      <td>-</td><td>-</td><td>-</td></tr>
+    <tr><td>t06</td>
+      <td><a href="../t06-flash-20261026-132352/report.html">t06-flash-20261026-132352</a></td>
+      <td>-</td><td>18</td><td>no</td><td>-</td><td>-</td>
+      <td>-</td><td>-</td><td>-</td></tr>
+    <tr><td>t08</td>
+      <td><a href="../t08-flash-20261026-133042/report.html">t08-flash-20261026-133042</a></td>
+      <td>-</td><td>18</td><td>no</td><td>-</td><td>-</td>
+      <td>-</td><td>-</td><td>-</td></tr>
+    <tr><td>s03</td>
+      <td><a href="../caught-and-fixed/report.html">caught-and-fixed</a></td>
+      <td>-</td><td>19</td><td>no</td><td>-</td><td>-</td>
+      <td>-</td><td>-</td><td>found step 9</td></tr>
+    <tr><td>humanize</td>
+      <td><a href="../humanize-planted-break/report.html">humanize-planted-break</a></td>
+      <td>test_naturalsize[test_args1-1.0 kB]</td><td>8</td><td>yes</td><td>8</td><td>-</td>
+      <td>last step, no chance to see it</td><td>0.0%</td><td>found step 8</td></tr>
+    <tr><td>humanize</td>
+      <td><a href="../humanize-planted-break/report.html">humanize-planted-break</a></td>
+      <td>test_naturalsize[test_args2-1.0 kB]</td><td>8</td><td>yes</td><td>8</td><td>-</td>
+      <td>last step, no chance to see it</td><td>0.0%</td><td>found step 8</td></tr>
+    <tr><td>humanize</td>
+      <td><a href="../humanize-planted-break/report.html">humanize-planted-break</a></td>
+      <td>test_naturalsize[test_args56-1.0K]</td><td>8</td><td>yes</td><td>8</td><td>-</td>
+      <td>last step, no chance to see it</td><td>0.0%</td><td>found step 8</td></tr>
     </tbody>
   </table>
-  </div>
-</section>
 
-<section class="card">
   <h2>Excluded runs</h2>
-  <div class="tablewrap">
-  <table>
-    <thead><tr><th>Run</th><th>Reason</th></tr></thead>
-    <tbody>
-    <tr><td class="mono">humanize-ordinal-fix</td><td>own-repo run without a planted break: a case study, not study data</td></tr>
-    </tbody>
-  </table>
-  </div>
-</section>
+  <ul><li>humanize-ordinal-fix: own-repo run without a planted break: a case study, not study data</li></ul>
 
-<section class="card claimbox">
   <h2>What this can and cannot claim</h2>
-  <div class="cols">
-    <div>
-      <strong>It can claim</strong>
-      <ul class="claims"><li>How often this setup ended with a broken final state: 1 of 6 runs, with the interval in the headline numbers.</li><li>For each broken run, the exact step that broke the code and when the agent first saw it. Read each as a case study.</li><li>For breaks the agent saw and later fixed (the repaired-break series), how many steps passed before it saw them.</li><li>That the bisect works on real traces, from the runs where we injected a known break. A few runs show only that the pipeline works.</li></ul>
-    </div>
-    <div>
-      <strong>It cannot claim</strong>
-      <ul class="claims"><li>Every claim here is about flash in Alan Code, on this fixture library and these tasks. It says nothing about other models, other agents, or other code.</li><li>Nothing about model size or any comparison between models. One model was tested.</li><li>A pooled median lag appears only with at least 6 bisectable broken runs, 3 of them observed. This study did not (1 bisectable, 0 observed).</li><li>The repaired-break series covers only breaks the agent saw. It says nothing about breaks the agent never saw, and we never pool it with the censored runs.</li><li>Rows from the same task are not independent, so read pooled numbers with care.</li><li>Only failures that a pytest test catches. A bad choice no test catches is invisible.</li></ul>
-    </div>
-  </div>
-</section>
-
-<footer>
-  Each verdict comes from running a test on each snapshot. No language model decides pass or fail.
-  Made by AgentBisect.
-</footer>
+  <h3>It can claim</h3>
+  <ul><li>How often this setup ended with a broken final state: 1 of 6 runs, with the interval in the headline numbers.</li><li>For each broken run, the exact step that broke the code and when the agent first saw it. Read each as a case study.</li><li>For breaks the agent saw and later fixed (the repaired-break series), how many steps passed before it saw them.</li><li>That the bisect works on real traces, from the runs where we injected a known break. A few runs show only that the pipeline works.</li></ul>
+  <h3>It cannot claim</h3>
+  <ul><li>Every claim here is about flash in Alan Code, on this fixture library and these tasks. It says nothing about other models, other agents, or other code.</li><li>Nothing about model size or any comparison between models. One model was tested.</li><li>A pooled median lag appears only with at least 6 bisectable broken runs, 3 of them observed. This study did not (1 bisectable, 0 observed).</li><li>The repaired-break series covers only breaks the agent saw. It says nothing about breaks the agent never saw, and we never pool it with the censored runs.</li><li>Rows from the same task are not independent, so read pooled numbers with care.</li><li>Only failures that a pytest test catches. A bad choice no test catches is invisible.</li></ul>
 </main>
+</noscript>
+<script type="application/json" id="data">{"page":"study","created":"2026-10-26 18:48 UTC","design":"METHODS \u00a78 variant B: DeepSeek V4.1 Flash only in Alan Code, the 10 t-tasks plus 6 repeats (16 task runs) and 3 sabotage runs; sabotage runs count for accuracy, not for lag.","scope":"Every claim here is about flash in Alan Code, on this fixture library and these tasks. It says nothing about other models, other agents, or other code.","counts":{"runs":6,"broken_runs":1,"bisectable_broken_runs":1,"observed_broken_runs":0,"sabotage_runs":2,"sabotage_correct":1,"pooled_ok":false,"models":["flash"],"tasks":["humanize","s03","t01","t06","t08","t10"]},"featured":[{"run_id":"humanize-planted-break","tag":"Planted break found","kind":"bad","rank":0,"sentences":["Step 8 (shell: python -m pytest -q --doctest-modules src/humanize/lists.py) broke 3 tests: test_naturalsize[test_args1-1.0 kB], test_naturalsize[test_args2-1.0 kB], test_naturalsize[test_args56-1.0K].","This was the agent's last step, so it had no chance to see the failure.","The run ended with the tests broken."],"n_steps":8,"tokens":"183k","model":"flash","repo":"https://github.com/python-humanize/humanize","has_bisect":true,"href":"../humanize-planted-break/report.html"},{"run_id":"caught-and-fixed","tag":"Caught and fixed","kind":"ok","rank":1,"sentences":["Step 9 (edit tests/test_report.py) broke test_cancel_restores_stock.","The agent saw it at step 13 and fixed it before the end.","4 steps and 112k tokens went into broken code first."],"n_steps":19,"tokens":"422k","model":"flash","repo":null,"has_bisect":true,"href":"../caught-and-fixed/report.html"},{"run_id":"humanize-ordinal-fix","tag":"Ended green","kind":"ok","rank":2,"sentences":["No test that passed at the start fails at the end.","The agent worked for 70 steps and the run ended green."],"n_steps":70,"tokens":"2.5M","model":"flash","repo":"https://github.com/python-humanize/humanize","has_bisect":true,"href":"../humanize-ordinal-fix/report.html"}],"metrics":[{"name":"Runs","value":"6","interval":"","n":6,"method":"count","note":"4 task runs, 2 sabotage runs (1 directories excluded)","simulation":false,"estimable":true,"raw":6.0,"low":null,"high":null,"percent":false},{"name":"Broken-run share","value":"0%","interval":"95% CI [0%, 49%]","n":4,"method":"Wilson 95%","note":"0/4: runs whose final state fails the oracle / task runs (sabotage runs excluded)","simulation":false,"estimable":true,"raw":0.0,"low":0.0,"high":0.48990002040399916,"percent":true},{"name":"Bisectable share of broken runs","value":"not estimable","interval":"","n":0,"method":"Wilson 95%","note":"no data: broken runs with at least one culprit found / broken runs","simulation":false,"estimable":false,"raw":null,"low":null,"high":null,"percent":false},{"name":"Censoring rate of broken runs","value":"not estimable","interval":"","n":0,"method":"Wilson 95%","note":"no data: runs where the agent never saw the failure / bisectable broken runs","simulation":false,"estimable":false,"raw":null,"low":null,"high":null,"percent":false},{"name":"Noticed at once (lag 0)","value":"not estimable","interval":"","n":0,"method":"Wilson 95%","note":"no data: bisectable broken runs where the failing step itself showed the failure (1 - S(0), METHODS \u00a75.2)","simulation":false,"estimable":false,"raw":null,"low":null,"high":null,"percent":false},{"name":"Detection lag, Kaplan-Meier median (steps)","value":"not estimable","interval":"","n":0,"method":"Kaplan-Meier, Greenwood log-log 95% band (METHODS \u00a75)","note":"not estimated: 0 bisectable broken runs (0 observed); METHODS \u00a78.4 needs at least 6 and 3 observed. Each run is listed as a row instead.","simulation":false,"estimable":false,"raw":null,"low":null,"high":null,"percent":false},{"name":"Wasted-token share (pooled)","value":"not estimable","interval":"","n":0,"method":"pooled ratio","note":"no bisectable run","simulation":false,"estimable":false,"raw":null,"low":null,"high":null,"percent":false},{"name":"Wasted-token share (median per run)","value":"not estimable","interval":"","n":0,"method":"median","note":"no bisectable run","simulation":false,"estimable":false,"raw":null,"low":null,"high":null,"percent":false},{"name":"No opportunity to observe (break on last step)","value":"0","interval":"","n":0,"method":"count","note":"0 of 0 bisectable broken task runs; left out of the censoring rate, the Kaplan-Meier curve and the wasted-token share (METHODS \u00a74.4). Sabotage runs with this flag: 1.","simulation":false,"estimable":true,"raw":0.0,"low":null,"high":null,"percent":false},{"name":"Sabotage accuracy","value":"100%","interval":"95% CI [34%, 100%]","n":2,"method":"Wilson 95%","note":"2/2: sabotage runs where the final-state culprit or a break the agent saw has the injected step as its decisive step / sabotage runs that fail at the end or show a seen break (not bisectable counts as wrong)","simulation":false,"estimable":true,"raw":1.0,"low":0.34237195288961925,"high":1.0,"percent":true},{"name":"Repaired-break episodes","value":"0","interval":"","n":0,"method":"count (METHODS \u00a78.4)","note":null,"simulation":false,"estimable":true,"raw":0.0,"low":null,"high":null,"percent":false},{"name":"Repaired-break lag, median (steps)","value":"not estimable","interval":"","n":0,"method":"median over episodes; cluster bootstrap over runs, B=2000, seed 0 (METHODS \u00a78.4)","note":"no episodes","simulation":false,"estimable":false,"raw":null,"low":null,"high":null,"percent":false}],"has_simulation":false,"lag_chart":{"axis_max":8,"ticks":[0,1,2,3,4,5,6,7,8],"bars":[{"label":"humanize  test_naturalsize[test_args1-1.0 kB]","title":"humanize-planted-break: python -m pytest -q 'tests/test_filesize.py::test_naturalsize[test_args1-1.0 kB]' broke at step 8; last step, no chance to see it (n=8)","t_err":8,"t_obs":null,"end":8,"kind":"censored","text":"last step, no chance to see it (n=8)","href":"../humanize-planted-break/report.html"},{"label":"humanize  test_naturalsize[test_args2-1.0 kB]","title":"humanize-planted-break: python -m pytest -q 'tests/test_filesize.py::test_naturalsize[test_args2-1.0 kB]' broke at step 8; last step, no chance to see it (n=8)","t_err":8,"t_obs":null,"end":8,"kind":"censored","text":"last step, no chance to see it (n=8)","href":"../humanize-planted-break/report.html"},{"label":"humanize  test_naturalsize[test_args56-1.0K]","title":"humanize-planted-break: python -m pytest -q 'tests/test_filesize.py::test_naturalsize[test_args56-1.0K]' broke at step 8; last step, no chance to see it (n=8)","t_err":8,"t_obs":null,"end":8,"kind":"censored","text":"last step, no chance to see it (n=8)","href":"../humanize-planted-break/report.html"}]},"episode_chart":{"axis_max":13,"ticks":[0,2,4,6,8,10,12],"bars":[{"label":"caught-and-fixed  test_cancel_restores_stock","title":"caught-and-fixed: python -m pytest -q tests/test_orders.py::test_cancel_restores_stock broke at step 9, seen at step 13; lag 4","t_err":9,"t_obs":13,"end":13,"kind":"observed","text":"lag 4","href":"../caught-and-fixed/report.html"}]},"runs":[{"run_id":"t01-flash-20261026-095102","href":"../t01-flash-20261026-095102/report.html","task":"t01","check":"-","steps":21,"broken":"no","broken_class":"pass","t_err":"-","t_obs":"-","lag":"-","censored":false,"share":"-","sabotage":"-","sabotage_class":"","t_err_n":null,"t_obs_n":null,"lag_n":null,"share_n":null},{"run_id":"t10-flash-20261026-132009","href":"../t10-flash-20261026-132009/report.html","task":"t10","check":"-","steps":10,"broken":"no","broken_class":"pass","t_err":"-","t_obs":"-","lag":"-","censored":false,"share":"-","sabotage":"-","sabotage_class":"","t_err_n":null,"t_obs_n":null,"lag_n":null,"share_n":null},{"run_id":"t06-flash-20261026-132352","href":"../t06-flash-20261026-132352/report.html","task":"t06","check":"-","steps":18,"broken":"no","broken_class":"pass","t_err":"-","t_obs":"-","lag":"-","censored":false,"share":"-","sabotage":"-","sabotage_class":"","t_err_n":null,"t_obs_n":null,"lag_n":null,"share_n":null},{"run_id":"t08-flash-20261026-133042","href":"../t08-flash-20261026-133042/report.html","task":"t08","check":"-","steps":18,"broken":"no","broken_class":"pass","t_err":"-","t_obs":"-","lag":"-","censored":false,"share":"-","sabotage":"-","sabotage_class":"","t_err_n":null,"t_obs_n":null,"lag_n":null,"share_n":null},{"run_id":"caught-and-fixed","href":"../caught-and-fixed/report.html","task":"s03","check":"-","steps":19,"broken":"no","broken_class":"pass","t_err":"-","t_obs":"-","lag":"-","censored":false,"share":"-","sabotage":"found step 9","sabotage_class":"pass","t_err_n":null,"t_obs_n":null,"lag_n":null,"share_n":null},{"run_id":"humanize-planted-break","href":"../humanize-planted-break/report.html","task":"humanize","check":"test_naturalsize[test_args1-1.0 kB]","steps":8,"broken":"yes","broken_class":"fail","t_err":"8","t_obs":"-","lag":"last step, no chance to see it","censored":true,"share":"0.0%","sabotage":"found step 8","sabotage_class":"pass","t_err_n":8,"t_obs_n":null,"lag_n":null,"share_n":0.0},{"run_id":"humanize-planted-break","href":"../humanize-planted-break/report.html","task":"humanize","check":"test_naturalsize[test_args2-1.0 kB]","steps":8,"broken":"yes","broken_class":"fail","t_err":"8","t_obs":"-","lag":"last step, no chance to see it","censored":true,"share":"0.0%","sabotage":"found step 8","sabotage_class":"pass","t_err_n":8,"t_obs_n":null,"lag_n":null,"share_n":0.0},{"run_id":"humanize-planted-break","href":"../humanize-planted-break/report.html","task":"humanize","check":"test_naturalsize[test_args56-1.0K]","steps":8,"broken":"yes","broken_class":"fail","t_err":"8","t_obs":"-","lag":"last step, no chance to see it","censored":true,"share":"0.0%","sabotage":"found step 8","sabotage_class":"pass","t_err_n":8,"t_obs_n":null,"lag_n":null,"share_n":0.0}],"episodes":[{"run_id":"caught-and-fixed","href":"../caught-and-fixed/report.html","check":"test_cancel_restores_stock","seen_at":13,"t_err":"9","lag":"4","wasted":"112,179","reason":null}],"excluded":[["humanize-ordinal-fix","own-repo run without a planted break: a case study, not study data"]],"can":["How often this setup ended with a broken final state: 1 of 6 runs, with the interval in the headline numbers.","For each broken run, the exact step that broke the code and when the agent first saw it. Read each as a case study.","For breaks the agent saw and later fixed (the repaired-break series), how many steps passed before it saw them.","That the bisect works on real traces, from the runs where we injected a known break. A few runs show only that the pipeline works."],"cannot":["Every claim here is about flash in Alan Code, on this fixture library and these tasks. It says nothing about other models, other agents, or other code.","Nothing about model size or any comparison between models. One model was tested.","A pooled median lag appears only with at least 6 bisectable broken runs, 3 of them observed. This study did not (1 bisectable, 0 observed).","The repaired-break series covers only breaks the agent saw. It says nothing about breaks the agent never saw, and we never pool it with the censored runs.","Rows from the same task are not independent, so read pooled numbers with care.","Only failures that a pytest test catches. A bad choice no test catches is invisible."]}</script>
 <script>
+!function(){var n,t,e,r,i,o,f,u,c,a,s,h,l,p,y,v,d,_="http:\/\/www.w3.org/2000/svg",w="http:\/\/www.w3.org/1999/xhtml",m=null,g=void 0,b={},k=[],x=/acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i,C=Array.isArray;function M(n,t){for(var e in t)n[e]=t[e];return n}function S(n){n&&n.parentNode&&n.parentNode.removeChild(n)}function $(t,e,r){var i,o,f,u={};for(f in e)"key"==f?i=e[f]:"ref"==f?o=e[f]:u[f]=e[f];if(arguments.length>2&&(u.children=arguments.length>3?n.call(arguments,2):r),"function"==typeof t&&t.defaultProps!=m)for(f in t.defaultProps)u[f]===g&&(u[f]=t.defaultProps[f]);return A(t,u,i,o,m)}function A(n,r,i,o,f){var u={type:n,props:r,key:i,ref:o,__k:m,__:m,__b:0,__e:m,__c:m,constructor:g,__v:f==m?++e:f,__i:-1,__u:0};return f==m&&t.vnode!=m&&t.vnode(u),u}function I(n){return n.children}function P(n,t){this.props=n,this.context=t}function E(n,t){if(t==m)return n.__?E(n.__,n.__i+1):m;for(var e;t<n.__k.length;t++)if((e=n.__k[t])!=m&&e.__e!=m)return e.__e;return"function"==typeof n.type?E(n):m}function F(n){if(n.__P&&n.__d){var e=n.__v,r=e.__e,i=[],o=[],f=M({},e);f.__v=e.__v+1,t.vnode&&t.vnode(f),B(n.__P,f,e,n.__n,n.__P.namespaceURI,32&e.__u?[r]:m,i,r==m?E(e):r,!!(32&e.__u),o),f.__v=e.__v,f.__.__k[f.__i]=f,G(i,f,o),e.__e=e.__=null,f.__e!=r&&H(f)}}function H(n){if((n=n.__)!=m&&n.__c!=m)return n.__e=n.__c.base=m,n.__k.some(function(t){if(t!=m&&t.__e!=m)return n.__e=n.__c.base=t.__e}),H(n)}function L(n){(!n.__d&&(n.__d=!0)&&i.push(n)&&!T.__r++||o!=t.debounceRendering)&&((o=t.debounceRendering)||f)(T)}function T(){try{for(var n,t=1;i.length;)i.length>t&&i.sort(u),n=i.shift(),t=i.length,F(n)}finally{i.length=T.__r=0}}function j(n,t,e,r,i,o,f,u,c,a,s){var h,l,p,y,v,d,_=r&&r.__k||k,w=t.length;for(c=O(e,t,_,c,w),h=0;h<w;h++)(p=e.__k[h])!=m&&(l=-1!=p.__i&&_[p.__i]||b,p.__i=h,d=B(n,p,l,i,o,f,u,c,a,s),y=p.__e,p.ref&&l.ref!=p.ref&&(l.ref&&Q(l.ref,m,p),s.push(p.ref,p.__c||y,p)),v==m&&y!=m&&(v=y),4&p.__u?(c=V(p,c,n),l.__e&&(l.__e=m)):"function"==typeof p.type&&d!==g?c=d:y&&(c=y.nextSibling),p.__u&=-7);return e.__e=v,c}function O(n,t,e,r,i){var o,f,u,c,a,s=e.length,h=s,l=0;for(n.__k=new Array(i),o=0;o<i;o++)(f=t[o])!=m&&"boolean"!=typeof f&&"function"!=typeof f?("string"==typeof f||"number"==typeof f||"bigint"==typeof f||f.constructor==String?f=n.__k[o]=A(m,f,m,m,m):C(f)?f=n.__k[o]=A(I,{children:f},m,m,m):f.constructor===g&&f.__b>0?f=n.__k[o]=A(f.type,f.props,f.key,f.ref?f.ref:m,f.__v):n.__k[o]=f,c=o+l,f.__=n,f.__b=n.__b+1,a=f.__i=z(f,e,c,h),u=m,-1!=a&&(h--,(u=e[a])&&(u.__u|=2)),u==m||u.__v==m?(-1==a&&(i>s?l--:i<s&&l++),"function"!=typeof f.type&&(f.__u|=4)):a!=c&&(a==c-1?l--:a==c+1?l++:(a>c?l--:l++,f.__u|=4))):n.__k[o]=m;if(h)for(o=0;o<s;o++)(u=e[o])!=m&&0==(2&u.__u)&&(u.__e==r&&(r=E(u)),U(u,u));return r}function V(n,t,e){var r,i;if("function"==typeof n.type){for(r=n.__k,i=0;r&&i<r.length;i++)r[i]&&(r[i].__=n,t=V(r[i],t,e));return t}n.__e!=t&&(t&&n.type&&!t.parentNode&&(t=E(n)),t=e.insertBefore(n.__e,t||m));do{t=t&&t.nextSibling}while(t!=m&&8==t.nodeType);return t}function z(n,t,e,r){var i,o,f,u=n.key,c=n.type,a=t[e],s=a!=m&&0==(2&a.__u);if(a===m&&null==u||s&&u==a.key&&c==a.type)return e;if(r>(s?1:0))for(i=e-1,o=e+1;i>=0||o<t.length;)if((a=t[f=i>=0?i--:o++])!=m&&0==(2&a.__u)&&u==a.key&&c==a.type)return f;return-1}function N(n,t,e){"-"==t[0]?n.setProperty(t,e==m?"":e):n[t]=e==m?"":"number"!=typeof e||x.test(t)?e:e+"px"}function R(n,t,e,r,i){var o,f;n:if("style"==t)if("string"==typeof e)n.style.cssText=e;else{if("string"==typeof r&&(n.style.cssText=r=""),r)for(t in r)e&&t in e||N(n.style,t,"");if(e)for(t in e)r&&e[t]==r[t]||N(n.style,t,e[t])}else if("o"==t[0]&&"n"==t[1])o=t!=(t=t.replace(h,"$1")),f=t.toLowerCase(),t=f in n||"onFocusOut"==t||"onFocusIn"==t?f.slice(2):t.slice(2),n.l||(n.l={}),n.l[t+o]=e,e?r?e[s]=r[s]:(e[s]=l,n.addEventListener(t,o?y:p,o)):n.removeEventListener(t,o?y:p,o);else{if(i==_)t=t.replace(/xlink(H|:h)/,"h").replace(/sName$/,"s");else if("width"!=t&&"height"!=t&&"href"!=t&&"list"!=t&&"form"!=t&&"tabIndex"!=t&&"download"!=t&&"rowSpan"!=t&&"colSpan"!=t&&"role"!=t&&"popover"!=t&&t in n)try{n[t]=e==m?"":e;break n}catch(n){}"function"==typeof e||(e==m||!1===e&&"-"!=t[4]?n.removeAttribute(t):n.setAttribute(t,"popover"==t&&1==e?"":e))}}function q(n){return function(e){if(this.l){var r=this.l[e.type+n];if(e[a]==m)e[a]=l++;else if(e[a]<r[s])return;return r(t.event?t.event(e):e)}}}function B(n,e,r,i,o,f,u,c,a,s){var h,l,p,y,v,d,_,w,b,x,$,A,F,H,L,T,O=e.type;if(e.constructor!==g)return m;128&r.__u&&(a=!!(32&r.__u),f=[c=e.__e=r.__e]),(h=t.__b)&&h(e);n:if("function"==typeof O){l=u.length;try{if(b=e.props,x=O.prototype&&O.prototype.render,$=(h=O.contextType)&&i[h.__c],A=h?$?$.props.value:h.__:i,r.__c?w=(p=e.__c=r.__c).__=p.__E:(x?e.__c=p=new O(b,A):(e.__c=p=new P(b,A),p.constructor=O,p.render=W),$&&$.sub(p),p.state||(p.state={}),p.__n=i,y=p.__d=!0,p.__h=[],p._sb=[]),x&&p.__s==m&&(p.__s=p.state),x&&O.getDerivedStateFromProps!=m&&(p.__s==p.state&&(p.__s=M({},p.__s)),M(p.__s,O.getDerivedStateFromProps(b,p.__s))),v=p.props,d=p.state,p.__v=e,y)x&&O.getDerivedStateFromProps==m&&p.componentWillMount!=m&&p.componentWillMount(),x&&p.componentDidMount!=m&&p.__h.push(p.componentDidMount);else{if(x&&O.getDerivedStateFromProps==m&&b!==v&&p.componentWillReceiveProps!=m&&p.componentWillReceiveProps(b,A),e.__v==r.__v||!p.__e&&p.shouldComponentUpdate!=m&&!1===p.shouldComponentUpdate(b,p.__s,A)){e.__v!=r.__v&&(p.props=b,p.state=p.__s,p.__d=!1),e.__e=r.__e,e.__k=r.__k,e.__k.some(function(n){n&&(n.__=e)}),k.push.apply(p.__h,p._sb),p._sb=[],p.__h.length&&u.push(p),c=E(r);break n}p.componentWillUpdate!=m&&p.componentWillUpdate(b,p.__s,A),x&&p.componentDidUpdate!=m&&p.__h.push(function(){p.componentDidUpdate(v,d,_)})}if(p.context=A,p.props=b,p.__P=n,p.__e=!1,F=t.__r,H=0,x)p.state=p.__s,p.__d=!1,F&&F(e),h=p.render(p.props,p.state,p.context),k.push.apply(p.__h,p._sb),p._sb=[];else do{p.__d=!1,F&&F(e),h=p.render(p.props,p.state,p.context),p.state=p.__s}while(p.__d&&++H<25);p.state=p.__s,p.getChildContext!=m&&(i=M(M({},i),p.getChildContext())),x&&!y&&p.getSnapshotBeforeUpdate!=m&&(_=p.getSnapshotBeforeUpdate(v,d)),L=h!=m&&h.type===I&&h.key==m?J(h.props.children):h,c=j(n,C(L)?L:[L],e,r,i,o,f,u,c,a,s),p.base=e.__e,e.__u&=-161,p.__h.length&&u.push(p),w&&(p.__E=p.__=m)}catch(n){if(u.length=l,e.__v=m,a||f!=m){if(n.then){for(e.__u|=a?160:128;c&&8==c.nodeType&&c.nextSibling;)c=c.nextSibling;f!=m&&(f[f.indexOf(c)]=m),e.__e=c}else if(f!=m)for(T=f.length;T--;)S(f[T])}else e.__e=r.__e;e.__k==m&&(e.__k=r.__k||[]),n.then||D(e),t.__e(n,e,r)}}else f==m&&e.__v==r.__v?(e.__k=r.__k,e.__e=r.__e):c=e.__e=K(r.__e,e,r,i,o,f,u,a,s);return(h=t.diffed)&&h(e),128&e.__u?void 0:c}function D(n){n&&(n.__c&&(n.__c.__e=!0),n.__k&&n.__k.some(D))}function G(n,e,r){for(var i=0;i<r.length;i++)Q(r[i],r[++i],r[++i]);t.__c&&t.__c(e,n),n.some(function(e){try{n=e.__h,e.__h=[],n.some(function(n){n.call(e)})}catch(n){t.__e(n,e.__v)}})}function J(n){return"object"!=typeof n||n==m||n.__b>0?n:C(n)?n.map(J):n.constructor!==g?null:M({},n)}function K(e,r,i,o,f,u,c,a,s){var h,l,p,y,v,d,k,x=i.props||b,M=r.props,$=r.type;if("svg"==$?f=_:"math"==$?f="http:\/\/www.w3.org/1998/Math/MathML":f||(f=w),u!=m)for(h=0;h<u.length;h++)if((v=u[h])&&"setAttribute"in v==!!$&&($?v.localName==$:3==v.nodeType)){e=v,u[h]=m;break}if(e==m){if($==m)return document.createTextNode(M);e=document.createElementNS(f,$,M.is&&M),a&&(t.__m&&t.__m(r,u),a=!1),u=m}if($==m)x===M||a&&e.data==M||(e.data=M);else{if(u="textarea"==$&&M.defaultValue!=m?m:u&&n.call(e.childNodes),!a&&u!=m)for(x={},h=0;h<e.attributes.length;h++)x[(v=e.attributes[h]).name]=v.value;for(h in x)v=x[h],"dangerouslySetInnerHTML"==h?p=v:"children"==h||h in M||"value"==h&&"defaultValue"in M||"checked"==h&&"defaultChecked"in M||R(e,h,m,v,f);for(h in M)v=M[h],"children"==h?y=v:"dangerouslySetInnerHTML"==h?l=v:"value"==h?d=v:"checked"==h?k=v:a&&"function"!=typeof v||x[h]===v||R(e,h,v,x[h],f);if(l)a||p&&(l.__html==p.__html||l.__html==e.innerHTML)||(e.innerHTML=l.__html),r.__k=[];else if(p&&(e.innerHTML=""),j("template"==r.type?e.content:e,C(y)?y:[y],r,i,o,"foreignObject"==$?w:f,u,c,u?u[0]:i.__k&&E(i,0),a,s),u!=m)for(h=u.length;h--;)S(u[h]);a&&"textarea"!=$||(h="value","progress"==$&&d==m?e.removeAttribute("value"):d!=g&&(d!==e[h]||"progress"==$&&!d||"option"==$&&d!=x[h])&&R(e,h,d,x[h],f),h="checked",k!=g&&k!=e[h]&&R(e,h,k,x[h],f))}return e}function Q(n,e,r){try{if("function"==typeof n){var i="function"==typeof n.__u;i&&n.__u(),i&&e==m||(n.__u=n(e))}else n.current=e}catch(n){t.__e(n,r)}}function U(n,e,r){var i,o;if(t.unmount&&t.unmount(n),(i=n.ref)&&(i.current&&i.current!=n.__e||Q(i,m,e)),(i=n.__c)!=m){if(i.componentWillUnmount)try{i.componentWillUnmount()}catch(n){t.__e(n,e)}i.base=i.__P=i.__n=m}if(i=n.__k)for(o=0;o<i.length;o++)i[o]&&U(i[o],e,r||"function"!=typeof n.type);r||S(n.__e),n.__c=n.__=n.__e=g}function W(n,t,e){return this.constructor(n,e)}function X(e,r,i){var o,f,u,c;r==document&&(r=document.documentElement),t.__&&t.__(e,r),f=(o="function"==typeof i)?m:i&&i.__k||r.__k,u=[],c=[],B(r,e=(!o&&i||r).__k=$(I,m,[e]),f||b,b,r.namespaceURI,!o&&i?[i]:f?m:r.firstChild?n.call(r.childNodes):m,u,!o&&i?i:f?f.__e:r.firstChild,o,c),G(u,e,c),e.props.children=m}n=k.slice,t={__e:function(n,t,e,r){for(var i,o,f;t=t.__;)if((i=t.__c)&&!i.__)try{if((o=i.constructor)&&o.getDerivedStateFromError!=m&&(i.setState(o.getDerivedStateFromError(n)),f=i.__d),i.componentDidCatch!=m&&(i.componentDidCatch(n,r||{}),f=i.__d),f)return i.__E=i}catch(t){n=t}throw n}},e=0,r=function(n){return n!=m&&n.constructor===g},P.prototype.setState=function(n,t){var e;e=this.__s!=m&&this.__s!=this.state?this.__s:this.__s=M({},this.state),"function"==typeof n&&(n=n(M({},e),this.props)),n&&M(e,n),n!=m&&this.__v&&(t&&this._sb.push(t),L(this))},P.prototype.forceUpdate=function(n){this.__v&&(this.__e=!0,n&&this.__h.push(n),L(this))},P.prototype.render=I,i=[],f="function"==typeof Promise?Promise.prototype.then.bind(Promise.resolve()):setTimeout,u=function(n,t){return n.__v.__b-t.__v.__b},T.__r=0,c=Math.random().toString(8),a="__d"+c,s="__a"+c,h=/(PointerCapture)$|Capture$/i,l=0,p=q(!1),y=q(!0),v=0,d={__proto__:null,render:X,hydrate:function n(t,e){X(t,e,n)},createElement:$,h:$,Fragment:I,createRef:function(){return{current:m}},isValidElement:r,Component:P,cloneElement:function(t,e,r){var i,o,f,u,c=M({},t.props);for(f in t.type&&t.type.defaultProps&&(u=t.type.defaultProps),e)"key"==f?i=e[f]:"ref"==f?o=e[f]:c[f]=e[f]===g&&u!=g?u[f]:e[f];return arguments.length>2&&(c.children=arguments.length>3?n.call(arguments,2):r),A(t.type,c,i||t.key,o||t.ref,m)},createContext:function(n){function t(n){var e,r;return this.getChildContext||(e=new Set,(r={})[t.__c]=this,this.getChildContext=function(){return r},this.componentWillUnmount=function(){e=m},this.shouldComponentUpdate=function(n){this.props.value!=n.value&&e.forEach(function(n){n.__e=!0,L(n)})},this.sub=function(n){e.add(n);var t=n.componentWillUnmount;n.componentWillUnmount=function(){e&&e.delete(n),t&&t.call(n)}}),n.children}return t.__c="__cC"+v++,t.__=n,t.Provider=t.__l=(t.Consumer=function(n,t){return n.children(t)}).contextType=t,t},toChildArray:function n(t,e){return e=e||[],t==m||"boolean"==typeof t||(C(t)?t.some(function(t){n(t,e)}):e.push(t)),e},options:t},typeof module<"u"?module.exports=d:self.preact=d}();
+
+</script>
+<script>
+!function(n,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports,require("preact")):"function"==typeof define&&define.amd?define(["exports","preact"],t):t((n||self).preactHooks={},n.preact)}(this,function(n,t){var u,i,r,o,f=0,c=[],e=t.options,a=e.__b,v=e.__r,l=e.diffed,d=e.__c,p=e.unmount,s=e.__;function y(n,t){e.__h&&e.__h(i,n,f||t),f=0;var u=i.__H||(i.__H={__:[],__h:[]});return n>=u.__.length&&u.__.push({}),u.__[n]}function h(n){return f=1,m(j,n)}function m(n,t,r){var o=y(u++,2);if(o.t=n,!o.__c&&(o.__=[r?r(t):j(void 0,t),function(n){var t=o.__N?o.__N[0]:o.__[0],u=o.t(t,n);t!==u&&(o.__N=[u,o.__[1]],o.__c.setState({}))}],o.__c=i,!i.__f)){var f=function(n,t,u){if(!o.__c.__H)return!0;var i=!1,r=o.__c.props!==n;if(o.__c.__H.__.some(function(n){if(n.__N){i=!0;var t=n.__[0];n.__=n.__N,n.__N=void 0,t!==n.__[0]&&(r=!0)}}),c){var f=c.call(this,n,t,u);return i?f||r:f}return!i||r};i.__f=!0;var c=i.shouldComponentUpdate,e=i.componentWillUpdate;i.componentWillUpdate=function(n,t,u){if(this.__e){var i=c;c=void 0,f(n,t,u),c=i}e&&e.call(this,n,t,u)},i.shouldComponentUpdate=f}return o.__N||o.__}function T(n,t){var r=y(u++,4);!e.__s&&g(r.__H,t)&&(r.__=n,r.u=t,i.__h.push(r))}function _(n,t){var i=y(u++,7);return g(i.__H,t)&&(i.__=n(),i.__H=t,i.__h=n),i.__}function b(){for(var n;n=c.shift();){var t=n.__H;if(n.__P&&t)try{t.__h.some(A),t.__h.some(F),t.__h=[]}catch(u){t.__h=[],e.__e(u,n.__v)}}}e.__b=function(n){i=null,a&&a(n)},e.__=function(n,t){n&&t.__k&&t.__k.__m&&(n.__m=t.__k.__m),s&&s(n,t)},e.__r=function(n){v&&v(n),u=0;var t=(i=n.__c).__H;t&&(r===i?(t.__h=[],i.__h=[],t.__.some(function(n){n.__N&&(n.__=n.__N),n.u=n.__N=void 0})):(t.__h.some(A),t.__h.some(F),t.__h=[],u=0)),r=i},e.diffed=function(n){l&&l(n);var t=n.__c;t&&t.__H&&(t.__H.__h.length&&(1!==c.push(t)&&o===e.requestAnimationFrame||((o=e.requestAnimationFrame)||x)(b)),t.__H.__.some(function(n){n.u&&(n.__H=n.u,n.u=void 0)})),r=i=null},e.__c=function(n,t){t.some(function(n){try{n.__h.some(A),n.__h=n.__h.filter(function(n){return!n.__||F(n)})}catch(u){t.some(function(n){n.__h&&(n.__h=[])}),t=[],e.__e(u,n.__v)}}),d&&d(n,t)},e.unmount=function(n){p&&p(n);var t,u=n.__c;u&&u.__H&&(u.__H.__.some(function(n){try{A(n)}catch(n){t=n}}),u.__H=void 0,t&&e.__e(t,u.__v))};var q="function"==typeof requestAnimationFrame;function x(n){var t,u=function(){clearTimeout(i),q&&cancelAnimationFrame(t),setTimeout(n)},i=setTimeout(u,35);q&&(t=requestAnimationFrame(u))}function A(n){var t=i,u=n.__c;"function"==typeof u&&(n.__c=void 0,u()),i=t}function F(n){var t=i;n.__c=n.__(),i=t}function g(n,t){return!n||n.length!==t.length||t.some(function(t,u){return t!==n[u]})}function j(n,t){return"function"==typeof t?t(n):t}n.useCallback=function(n,t){return f=8,_(function(){return n},t)},n.useContext=function(n){var t=i.context[n.__c],r=y(u++,9);return r.c=n,t?(null==r.__&&(r.__=!0,t.sub(i)),t.props.value):n.__},n.useDebugValue=function(n,t){e.useDebugValue&&e.useDebugValue(t?t(n):n)},n.useEffect=function(n,t){var r=y(u++,3);!e.__s&&g(r.__H,t)&&(r.__=n,r.u=t,i.__H.__h.push(r))},n.useErrorBoundary=function(n){var t=y(u++,10),r=h();return t.__=n,i.componentDidCatch||(i.componentDidCatch=function(n,u){t.__&&t.__(n,u),r[1](n)}),[r[0],function(){r[1](void 0)}]},n.useId=function(){var n=y(u++,11);if(!n.__){for(var t=i.__v;null!==t&&!t.__m&&null!==t.__;)t=t.__;var r=t.__m||(t.__m=[0,0]);n.__="P"+r[0]+"-"+r[1]++}return n.__},n.useImperativeHandle=function(n,t,u){f=6,T(function(){if("function"==typeof n){var u=n(t());return function(){n(null),u&&"function"==typeof u&&u()}}if(n)return n.current=t(),function(){return n.current=null}},null==u?u:u.concat(n))},n.useLayoutEffect=T,n.useMemo=_,n.useReducer=m,n.useRef=function(n){return f=5,_(function(){return{current:n}},[])},n.useState=h});
+
+</script>
+<script>
+!function(){var n=function(t,e,s,u){var r;e[0]=0;for(var h=1;h<e.length;h++){var p=e[h++],a=e[h]?(e[0]|=p?1:2,s[e[h++]]):e[++h];3===p?u[0]=a:4===p?u[1]=Object.assign(u[1]||{},a):5===p?(u[1]=u[1]||{})[e[++h]]=a:6===p?u[1][e[++h]]+=a+"":p?(r=t.apply(a,n(t,a,s,["",null])),u.push(r),a[0]?e[0]|=2:(e[h-2]=0,e[h]=r)):u.push(a)}return u},t=new Map,e=function(e){var s=t.get(this);return s||(s=new Map,t.set(this,s)),(s=n(this,s.get(e)||(s.set(e,s=function(n){for(var t,e,s=1,u="",r="",h=[0],p=function(n){1===s&&(n||(u=u.replace(/^\s*\n\s*|\s*\n\s*$/g,"")))?h.push(0,n,u):3===s&&(n||u)?(h.push(3,n,u),s=2):2===s&&"..."===u&&n?h.push(4,n,0):2===s&&u&&!n?h.push(5,0,!0,u):s>=5&&((u||!n&&5===s)&&(h.push(s,0,u,e),s=6),n&&(h.push(s,n,0,e),s=6)),u=""},a=0;a<n.length;a++){a&&(1===s&&p(),p(a));for(var o=0;o<n[a].length;o++)t=n[a][o],1===s?"<"===t?(p(),h=[h],s=3):u+=t:4===s?"--"===u&&">"===t?(s=1,u=""):u=t+u[0]:r?t===r?r="":u+=t:'"'===t||"'"===t?r=t:">"===t?(p(),s=1):s&&("="===t?(s=5,e=u,u=""):"/"===t&&(s<5||">"===n[a][o+1])?(p(),3===s&&(h=h[0]),s=h,(h=h[0]).push(2,0,s),s=0):" "===t||"\t"===t||"\n"===t||"\r"===t?(p(),s=2):u+=t),3===s&&"!--"===u&&(s=4,h=h[0])}return p(),h}(e)),s),arguments,[])).length>1?s:s[0]};"undefined"!=typeof module?module.exports=e:self.htm=e}();
+
+</script>
+<script>
+/* Shared helpers and components for the report pages. Loaded after Preact, hooks and htm.
+   Everything from a run reaches the DOM as a text node or an attribute value. */
 (function () {
-  var root = document.documentElement;
-  var btn = document.getElementById("theme");
-  try { var saved = localStorage.getItem("agentbisect-theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
-  btn.addEventListener("click", function () {
-    var cur = root.getAttribute("data-theme");
-    if (!cur) cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    var next = cur === "dark" ? "light" : "dark";
-    root.setAttribute("data-theme", next);
-    try { localStorage.setItem("agentbisect-theme", next); } catch (e) {}
+  "use strict";
+  var P = preact;
+  var H = preactHooks;
+  var html = htm.bind(P.h);
+  var AB = {
+    h: P.h,
+    html: html,
+    render: P.render,
+    Fragment: P.Fragment,
+    useState: H.useState,
+    useEffect: H.useEffect,
+    useRef: H.useRef,
+    useMemo: H.useMemo,
+    useCallback: H.useCallback,
+    useLayoutEffect: H.useLayoutEffect,
+  };
+  window.AB = AB;
+
+  AB.readData = function () {
+    return JSON.parse(document.getElementById("data").textContent);
+  };
+  AB.cx = function () {
+    var out = [];
+    for (var i = 0; i < arguments.length; i++) if (arguments[i]) out.push(arguments[i]);
+    return out.join(" ");
+  };
+  AB.plural = function (n, one, many) {
+    return n + " " + (n === 1 ? one : many || one + "s");
+  };
+  AB.reducedMotion = function () {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch (e) {
+      return false;
+    }
+  };
+  AB.clamp = function (x, lo, hi) {
+    return Math.max(lo, Math.min(hi, x));
+  };
+  AB.isTyping = function (el) {
+    if (!el || !el.tagName) return false;
+    var t = el.tagName;
+    return t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || el.isContentEditable === true;
+  };
+
+  /* ------------------------------------------------------------------ icons */
+
+  var PATHS = {
+    read: ["M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8s-2.3 4.5-6.5 4.5S1.5 8 1.5 8z", "M8 6.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z"],
+    write: ["M4 1.8h5l3 3v9.4H4z", "M8 7.2v4M6 9.2h4"],
+    edit: ["M2.8 13.2l.7-3.1L11 2.6l2.4 2.4-7.5 7.5z", "M9.6 4l2.4 2.4"],
+    shell: ["M2.5 4.5L6 8l-3.5 3.5", "M8 12h5.5"],
+    finish: ["M4 14.2V2.2", "M4 3h8.2l-1.7 2.9 1.7 2.9H4"],
+    other: ["M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z"],
+    base: ["M3.5 3v10", "M3.5 3.5h8L9.6 6.2l1.9 2.7h-8"],
+    play: ["M4.5 2.8v10.4L13 8z"],
+    pause: ["M5 3v10", "M11 3v10"],
+    step: ["M3.5 3v10L10 8z", "M12.5 3v10"],
+    back: ["M12.5 3v10L6 8z", "M3.5 3v10"],
+    reset: ["M3 8a5 5 0 1 0 1.6-3.7", "M3 2.6v3h3"],
+    sun: ["M8 5.3a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z", "M8 1.2v1.5M8 13.3v1.5M1.2 8h1.5M13.3 8h1.5M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M3.2 12.8l1.1-1.1M11.7 4.3l1.1-1.1"],
+    moon: ["M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8z"],
+    search: ["M7 2.8a4.2 4.2 0 1 0 0 8.4 4.2 4.2 0 0 0 0-8.4z", "M10.2 10.2l3.3 3.3"],
+    chev: ["M4 6l4 4 4-4"],
+    check: ["M3 8.4l3.2 3.2L13 4.8"],
+    cross: ["M4 4l8 8M12 4l-8 8"],
+    warn: ["M8 2.4l6 10.6H2z", "M8 6.6v3M8 11.2v.1"],
+    link: ["M6.6 9.4a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-.8.8", "M9.4 6.6a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l.8-.8"],
+    arrow: ["M3 8h10M9 4l4 4-4 4"],
+  };
+  AB.Icon = function (props) {
+    var name = props.name;
+    var size = props.size || 16;
+    var paths = PATHS[name] || PATHS.other;
+    var fill = name === "play" || name === "pause" ? "currentColor" : "none";
+    return html`<svg width=${size} height=${size} viewBox="0 0 16 16" fill=${fill} stroke="currentColor"
+      stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      ${paths.map(function (d) { return html`<path d=${d} />`; })}
+    </svg>`;
+  };
+  AB.Glyph = function (props) {
+    var kind = PATHS[props.kind] ? props.kind : "other";
+    return html`<${AB.Icon} name=${kind} size=${props.size || 15} />`;
+  };
+
+  AB.Logo = function () {
+    return html`<svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="26" height="26" rx="8" fill="currentColor" opacity=".14" />
+      <path d="M7 14h5.5M12.5 14l6-5.5M12.5 14l6 5.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="7" cy="14" r="2" fill="currentColor" />
+      <circle cx="19.5" cy="8.5" r="2.1" fill="var(--green)" />
+      <circle cx="19.5" cy="19.5" r="2.1" fill="var(--red-solid)" />
+    </svg>`;
+  };
+
+  /* ------------------------------------------------------------------ theme */
+
+  function currentTheme() {
+    var t = document.documentElement.getAttribute("data-theme");
+    if (t === "light" || t === "dark") return t;
+    try {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    } catch (e) {
+      return "light";
+    }
+  }
+  AB.ThemeToggle = function () {
+    var s = AB.useState(currentTheme());
+    var theme = s[0];
+    AB.useEffect(function () {
+      // follow the system setting while the person has not picked a theme
+      var mq;
+      try {
+        mq = window.matchMedia("(prefers-color-scheme: dark)");
+      } catch (e) {
+        return undefined;
+      }
+      function onChange() {
+        s[1](currentTheme());
+      }
+      if (mq.addEventListener) mq.addEventListener("change", onChange);
+      return function () {
+        if (mq.removeEventListener) mq.removeEventListener("change", onChange);
+      };
+    }, []);
+    function flip() {
+      var next = theme === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try {
+        localStorage.setItem("agentbisect-theme", next);
+      } catch (e) {}
+      s[1](next);
+    }
+    var label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+    return html`<button type="button" class="btn icon" onClick=${flip} aria-label=${label} title=${label}>
+      <${AB.Icon} name=${theme === "dark" ? "sun" : "moon"} size=${17} />
+      <span class="tlabel">${theme === "dark" ? "Light" : "Dark"}</span>
+    </button>`;
+  };
+
+  AB.TopBar = function (props) {
+    return html`<header class="topbar">
+      <div class="wrap">
+        <span class="brand"><${AB.Logo} /> AgentBisect <small>${props.kind}</small></span>
+        <span class="grow crumb">${props.crumb}</span>
+        ${props.children}
+        <${AB.ThemeToggle} />
+      </div>
+    </header>`;
+  };
+
+  /* ------------------------------------------------------------------ blocks */
+
+  /* A monospace block. Long text starts capped and opens with a button. */
+  AB.CodeBlock = function (props) {
+    var text = props.text || "";
+    var lines = text.split("\n").length;
+    var long = lines > 14 || text.length > 1500;
+    var s = AB.useState(false);
+    var open = s[0];
+    var capped = long && !open;
+    return html`<div class=${AB.cx("capbox", capped && "capped")}>
+      <pre class=${AB.cx("code", props.nowrap && "nowrap")} tabindex="0" aria-label=${props.label}>${text}</pre>
+      ${long
+        ? html`<button type="button" class="btn ghost more small" aria-expanded=${open} onClick=${function () { s[1](!open); }}>
+            ${open ? "Show less" : "Show all " + lines + " lines"}
+          </button>`
+        : null}
+    </div>`;
+  };
+
+  /* ------------------------------------------------------------------ diff */
+
+  var KEYWORDS = {
+    py: "and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield self",
+    js: "async await break case catch class const continue default delete do else export extends false finally for from function if import in instanceof let new null of return static super switch this throw true try typeof undefined var void while yield",
+  };
+  var KWSET = {};
+  Object.keys(KEYWORDS).forEach(function (k) {
+    var set = {};
+    KEYWORDS[k].split(" ").forEach(function (w) { set[w] = true; });
+    KWSET[k] = set;
   });
+  var LANG = { py: "py", pyi: "py", js: "js", mjs: "js", ts: "js", tsx: "js", jsx: "js" };
+  var TOKEN_RE = /(#.*$|\/\/.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_][A-Za-z_0-9]*)/g;
+
+  /* Split one line of code into [className, text] pieces. A very light tokenizer: comments,
+     strings, numbers and keywords. Anything else stays plain. */
+  AB.tokenize = function (line, lang) {
+    if (!lang || line.length > 400) return [["", line]];
+    var set = KWSET[lang];
+    var out = [];
+    var last = 0;
+    var m;
+    TOKEN_RE.lastIndex = 0;
+    while ((m = TOKEN_RE.exec(line))) {
+      var cls = "";
+      if (m[1] !== undefined) {
+        if (lang === "py" && m[1].slice(0, 2) === "//") continue;
+        if (lang === "js" && m[1][0] === "#") continue;
+        cls = "tk-c";
+      } else if (m[2] !== undefined) cls = "tk-s";
+      else if (m[3] !== undefined) cls = "tk-n";
+      else if (set[m[4]]) cls = "tk-k";
+      else continue;
+      if (m.index > last) out.push(["", line.slice(last, m.index)]);
+      out.push([cls, m[0]]);
+      last = m.index + m[0].length;
+    }
+    if (last < line.length) out.push(["", line.slice(last)]);
+    return out;
+  };
+
+  /* Parse a unified diff into files -> rows. Row: {k: add|del|ctx|hunk|note, a: old line, b: new line, t: text}. */
+  AB.parseDiff = function (text) {
+    var files = [];
+    var f = null;
+    var inHunk = false;
+    var oldN = 0;
+    var newN = 0;
+    var lines = text.split("\n");
+    if (lines.length && lines[lines.length - 1] === "") lines.pop();
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i];
+      if (ln.slice(0, 11) === "diff --git ") {
+        var mm = /^diff --git a\/(.*) b\/(.*)$/.exec(ln);
+        f = { path: mm ? mm[2] : ln.slice(11), status: "modified", rows: [], add: 0, del: 0 };
+        files.push(f);
+        inHunk = false;
+        continue;
+      }
+      if (!f) {
+        f = { path: "(diff)", status: "modified", rows: [], add: 0, del: 0 };
+        files.push(f);
+      }
+      if (!inHunk) {
+        if (ln.slice(0, 8) === "new file") f.status = "added";
+        else if (ln.slice(0, 12) === "deleted file") f.status = "deleted";
+        else if (ln.slice(0, 4) === "--- " && f.path === "(diff)") f.path = ln.slice(4).replace(/^a\//, "");
+        else if (ln.slice(0, 13) === "Binary files ") f.rows.push({ k: "note", t: ln });
+        else if (ln.slice(0, 2) === "@@") {
+          inHunk = true;
+          i--;
+        }
+        continue;
+      }
+      if (ln.slice(0, 2) === "@@") {
+        var h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(ln);
+        oldN = h ? parseInt(h[1], 10) : 0;
+        newN = h ? parseInt(h[2], 10) : 0;
+        f.rows.push({ k: "hunk", t: ln });
+        continue;
+      }
+      var c = ln.charAt(0);
+      if (c === "+") {
+        f.rows.push({ k: "add", b: newN++, t: ln.slice(1) });
+        f.add++;
+      } else if (c === "-") {
+        f.rows.push({ k: "del", a: oldN++, t: ln.slice(1) });
+        f.del++;
+      } else if (c === "\\") {
+        f.rows.push({ k: "note", t: ln.slice(1).trim() });
+      } else {
+        f.rows.push({ k: "ctx", a: oldN++, b: newN++, t: ln.slice(1) });
+      }
+    }
+    return files;
+  };
+
+  function langOf(path) {
+    var m = /\.([A-Za-z0-9]+)$/.exec(path || "");
+    return m ? LANG[m[1].toLowerCase()] : null;
+  }
+
+  AB.DiffView = function (props) {
+    var files = AB.useMemo(function () { return AB.parseDiff(props.text || ""); }, [props.text]);
+    if (!files.length) return null;
+    return html`<div class="diff" role="group" aria-label=${props.label || "Diff"}>
+      ${files.map(function (f) {
+        var lang = langOf(f.path);
+        return html`<section class="dfile">
+          <div class="dhead">
+            <span class="path mono">${f.path}</span>
+            ${f.status !== "modified" ? html`<span class="tag prb">${f.status}</span>` : null}
+            <span class="st mono"><span class="plus">+${f.add}</span> <span class="minus">−${f.del}</span></span>
+          </div>
+          <div class="dscroll">
+            ${f.rows.map(function (r) {
+              if (r.k === "hunk" || r.k === "note")
+                return html`<div class=${"dl " + r.k}><span class="ln"></span><span class="ln"></span><span class="sg"></span><code>${r.t}</code></div>`;
+              var sign = r.k === "add" ? "+" : r.k === "del" ? "−" : "";
+              var toks = AB.tokenize(r.t, lang);
+              return html`<div class=${"dl " + r.k}>
+                <span class="ln">${r.a === undefined ? "" : r.a}</span>
+                <span class="ln">${r.b === undefined ? "" : r.b}</span>
+                <span class="sg">${sign}</span>
+                <code>${toks.map(function (t) { return t[0] ? html`<span class=${t[0]}>${t[1]}</span>` : t[1]; })}</code>
+              </div>`;
+            })}
+          </div>
+        </section>`;
+      })}
+    </div>`;
+  };
 })();
+
+</script>
+<script>
+/* The study page: landing header, demo run cards, headline numbers, lag chart, runs table. */
+(function () {
+  "use strict";
+  var A = AB;
+  var html = A.html;
+  var useState = A.useState;
+  var useMemo = A.useMemo;
+  var cx = A.cx;
+  var D = A.readData();
+
+  function pctOf(v, max) {
+    return (max > 0 ? A.clamp(v / max, 0, 1) * 100 : 0) + "%";
+  }
+
+  /* ---------------------------------------------------------------- landing */
+
+  function Landing() {
+    var c = D.counts;
+    return html`<section class="landing">
+      <div class="wrap">
+        <p class="kicker">Study results${D.created ? " · " + D.created : ""}</p>
+        <h1><${A.Logo} /> AgentBisect</h1>
+        <p class="pitch">git bisect for coding agents. It finds the exact step where an agent broke your code, and how long the agent kept working before it noticed.</p>
+        <p class="pitch2">It saves the repo after every agent action, then binary-searches those saves with your failing test. The verdict comes from running tests. No language model decides pass or fail.</p>
+        <div class="chips">
+          <span class="chip"><b>${c.runs}</b> ${c.runs === 1 ? "run" : "runs"} counted</span>
+          <span class="chip"><b>${c.broken_runs}</b> ended broken</span>
+          ${D.excluded.length ? html`<span class="chip"><b>${D.excluded.length}</b> excluded</span>` : null}
+          ${c.models.length ? html`<span class="chip">model <b>${c.models.join(", ")}</b></span>` : null}
+          ${D.design ? html`<span class="chip" title=${D.design}><code>${D.design.length > 70 ? D.design.slice(0, 69) + "…" : D.design}</code></span>` : null}
+        </div>
+        <div class="how">
+          <div><b><span class="num">1</span> Record</b>Snapshot the repo after every step the agent takes.</div>
+          <div><b><span class="num">2</span> Bisect</b>Binary-search the snapshots with your failing test.</div>
+          <div><b><span class="num">3</span> Measure</b>Count the steps and tokens between the break and the agent noticing.</div>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  function RunCards() {
+    if (!D.featured.length) return null;
+    return html`<div class="section">
+      <h2>Start here: real runs</h2>
+      <div class="cards">
+        ${D.featured.map(function (f) {
+          var tone = f.kind === "bad" ? "" : f.kind === "ok" ? "ok" : "warn";
+          return html`<a class="card runcard" key=${f.run_id} href=${f.href} aria-label=${"Open the report for " + f.run_id}>
+            <span class=${cx("rtag", tone)}>${f.tag}</span>
+            <h3>${f.run_id}</h3>
+            <p class="v1" title=${f.sentences[0] || null}>${f.sentences[0] || "No verdict."}</p>
+            ${f.sentences.length > 1 ? html`<p class="v2">${f.sentences.slice(1).join(" ")}</p>` : null}
+            <span class="rmeta">${f.n_steps} steps · ${f.tokens} tokens${f.model ? " · " + f.model : ""}</span>
+            <span class="open">Open the report <${A.Icon} name="arrow" size=${15} /></span>
+          </a>`;
+        })}
+      </div>
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------- numbers */
+
+  function trimNum(x) {
+    return String(Math.round(x * 10) / 10);
+  }
+
+  function Metric(props) {
+    var m = props.m;
+    var hasCi = m.raw != null && m.low != null && m.high != null;
+    var top = m.percent ? 1 : Math.max(m.high || 0, m.raw || 0) * 1.1 || 1;
+    return html`<div class="card metric">
+      <div class="k">${m.name}</div>
+      <div class=${cx("v", !m.estimable && "na")}>${m.value}</div>
+      ${m.interval ? html`<div class="ciline mono">${m.interval}</div>` : null}
+      ${hasCi
+        ? html`<div aria-hidden="true">
+            <div class="cirail"><i style=${{ left: pctOf(m.low, top), width: "calc(" + pctOf(m.high, top) + " - " + pctOf(m.low, top) + ")" }}></i><b style=${{ left: pctOf(m.raw, top) }}></b></div>
+            <div class="ciaxis"><span>0</span><span>${m.percent ? "100%" : trimNum(top)}</span></div>
+          </div>`
+        : null}
+      <div class="m">n = ${m.n} · ${m.method}</div>
+      ${m.note ? html`<div class="m">${m.note}</div>` : null}
+      ${m.simulation ? html`<span class="sim">simulation, not real agent runs</span>` : null}
+    </div>`;
+  }
+
+  function Numbers() {
+    return html`<div class="section">
+      <h2>Headline numbers</h2>
+      ${D.metrics.length
+        ? html`<div class="metrics">${D.metrics.map(function (m) { return html`<${Metric} m=${m} key=${m.name} />`; })}</div>`
+        : html`<p class="muted">No metrics were computed.</p>`}
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------- chart */
+
+  function LagRow(props) {
+    var b = props.b;
+    var ch = props.chart;
+    var x = function (v) { return pctOf(v, ch.axis_max); };
+    var label = b.href
+      ? html`<a href=${b.href}>${b.label}</a>`
+      : html`<span class="nm">${b.label}</span>`;
+    return html`<div class="lrow" tabindex="0" role="img" aria-label=${b.title}>
+      <div class="llabel">${label}<span class="ltext">${b.text}</span></div>
+      <div class="ltrack">
+        ${ch.ticks.map(function (t) { return html`<i class="gl" style=${{ left: x(t) }}></i>`; })}
+        <i class="runend" style=${{ left: x(b.end) }} title="end of the run"></i>
+        ${b.kind === "censored"
+          ? html`<i class="open" style=${{ left: x(b.t_err), width: "calc(" + x(b.end) + " - " + x(b.t_err) + ")" }}></i>
+              <i class="arrowhead" style=${{ left: x(b.end) }}></i>
+              <b class="dot err" style=${{ left: x(b.t_err) }}></b>`
+          : b.kind === "instant"
+            ? html`<b class="dot obs" style=${{ left: "calc(" + x(b.t_err) + " + 6px)" }}></b><b class="dot err" style=${{ left: x(b.t_err) }}></b>`
+            : html`<i class="span" style=${{ left: x(b.t_err), width: "calc(" + x(b.t_obs) + " - " + x(b.t_err) + ")" }}></i>
+                <b class="dot err" style=${{ left: x(b.t_err) }}></b><b class="dot obs" style=${{ left: x(b.t_obs) }}></b>`}
+      </div>
+      <div class="tip" role="tooltip">${b.title}</div>
+    </div>`;
+  }
+
+  function Chart(props) {
+    var ch = props.chart;
+    return html`<div class="lagchart chartwrap">
+      <div class="laxis"><span></span><div class="ticks">${ch.ticks.map(function (t) {
+        return html`<span style=${{ left: pctOf(t, ch.axis_max) }}>${t}</span>`;
+      })}</div></div>
+      ${ch.bars.map(function (b, i) { return html`<${LagRow} b=${b} chart=${ch} key=${i} />`; })}
+    </div>`;
+  }
+
+  function LagPanel() {
+    return html`<div class="section"><div class="card panel">
+      <h2 class="t">Detection lag in broken runs</h2>
+      <p class="lede">One row per run that ended broken. The axis counts steps. Hover or focus a row for the details.</p>
+      ${D.lag_chart
+        ? html`<div class="keys">
+              <span><i class="k-err"></i>step that broke the code</span>
+              <span><i class="k-obs"></i>step where the agent first saw the failure</span>
+              <span><i class="k-span"></i>steps spent on broken code</span>
+              <span><i class="k-open"></i>open end: the agent never saw it (censored)</span>
+            </div>
+            <${Chart} chart=${D.lag_chart} />
+            <p class="note small muted" style=${{ marginTop: "10px" }}>The grey tick marks where each run ended.</p>`
+        : html`<p class="muted">No run ended broken with a decisive step, so there is nothing to draw.</p>`}
+    </div></div>`;
+  }
+
+  function EpisodePanel() {
+    return html`<div class="section"><div class="card panel sep">
+      <h2 class="t">Repaired breaks (a separate series)</h2>
+      <p class="lede">The agent broke a test that passed at the start, saw the failure, and fixed it. We find these only when the agent saw them, so none is censored. They say nothing about breaks the agent never saw. Never pool this series with the broken runs above.</p>
+      ${D.episode_chart
+        ? html`<div class="keys">
+              <span><i class="k-err"></i>step that broke the test</span>
+              <span><i class="k-obs"></i>step where the agent saw the failure</span>
+              <span><i class="k-span"></i>steps before it saw it</span>
+            </div>
+            <${Chart} chart=${D.episode_chart} />`
+        : null}
+      ${D.episodes.length
+        ? html`<div class="tablewrap" style=${{ marginTop: "14px" }}><table>
+            <thead><tr><th>Run</th><th>Test</th><th>Seen at</th><th>t_err</th><th>Lag</th><th>Tokens wasted</th><th>Note</th></tr></thead>
+            <tbody>${D.episodes.map(function (e, i) {
+              return html`<tr key=${i}>
+                <td class="mono">${e.href ? html`<a href=${e.href}>${e.run_id}</a>` : e.run_id}</td>
+                <td class="mono">${e.check}</td><td class="num">${e.seen_at}</td><td class="num">${e.t_err}</td>
+                <td class="num">${e.lag}</td><td class="num">${e.wasted}</td><td>${e.reason || ""}</td></tr>`;
+            })}</tbody></table></div>`
+        : html`<p class="muted">No repaired breaks found.</p>`}
+    </div></div>`;
+  }
+
+  /* ---------------------------------------------------------------- runs table */
+
+  var COLS = [
+    { k: "task", label: "Task", get: function (r) { return r.task; } },
+    { k: "run", label: "Run", get: function (r) { return r.run_id; } },
+    { k: "check", label: "Test", get: function (r) { return r.check; } },
+    { k: "steps", label: "Steps", get: function (r) { return r.steps; }, num: true },
+    { k: "broken", label: "Broken?", get: function (r) { return r.broken; } },
+    { k: "t_err", label: "t_err", get: function (r) { return r.t_err_n; }, num: true },
+    { k: "t_obs", label: "t_obs", get: function (r) { return r.t_obs_n; }, num: true },
+    { k: "lag", label: "Lag", get: function (r) { return r.lag_n; }, num: true },
+    { k: "share", label: "Wasted share", get: function (r) { return r.share_n; }, num: true },
+    { k: "sabotage", label: "Sabotage correct", get: function (r) { return r.sabotage; } },
+  ];
+
+  function cellOf(r, col) {
+    switch (col.k) {
+      case "run":
+        return r.href ? html`<a href=${r.href}>${r.run_id}</a>` : r.run_id;
+      case "broken":
+        return html`<span class=${"pill " + r.broken_class}>${r.broken}</span>`;
+      case "t_err":
+        return r.t_err;
+      case "t_obs":
+        return r.t_obs;
+      case "lag":
+        return r.censored ? html`<span class="pill cens">${r.lag}</span>` : r.lag;
+      case "share":
+        return r.share;
+      case "sabotage":
+        return r.sabotage_class ? html`<span class=${"pill " + r.sabotage_class}>${r.sabotage}</span>` : r.sabotage;
+      case "task":
+        return r.task;
+      case "check":
+        return r.check;
+      default:
+        return r.steps;
+    }
+  }
+
+  function RunsTable() {
+    var sortS = useState({ k: null, dir: 1 });
+    var qS = useState("");
+    var sort = sortS[0];
+    var q = qS[0].trim().toLowerCase();
+    var rows = useMemo(
+      function () {
+        var out = D.runs
+          .map(function (r, i) { return { r: r, i: i }; })
+          .filter(function (x) {
+            if (!q) return true;
+            var r = x.r;
+            return [r.task, r.run_id, r.check, r.steps, r.broken, r.t_err, r.t_obs, r.lag, r.share, r.sabotage]
+              .join(" ")
+              .toLowerCase()
+              .indexOf(q) !== -1;
+          });
+        if (sort.k) {
+          var col = COLS.filter(function (c) { return c.k === sort.k; })[0];
+          out.sort(function (a, b) {
+            var x = col.get(a.r);
+            var y = col.get(b.r);
+            if (x == null && y == null) return a.i - b.i;
+            if (x == null) return 1;
+            if (y == null) return -1;
+            var d = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "en", { numeric: true });
+            return d ? d * sort.dir : a.i - b.i;
+          });
+        }
+        return out;
+      },
+      [sort.k, sort.dir, q]
+    );
+    function toggle(k) {
+      sortS[1](sort.k === k ? { k: k, dir: -sort.dir } : { k: k, dir: 1 });
+    }
+    return html`<div class="section"><div class="card panel">
+      <h2 class="t">Runs</h2>
+      <p class="lede">Every counted run. Click a column to sort. Click a run id to open its report.</p>
+      ${D.runs.length
+        ? html`<div class="tools">
+              <input type="search" placeholder="Filter runs" aria-label="Filter runs" value=${qS[0]} onInput=${function (e) { qS[1](e.target.value); }} />
+              <span class="small muted" role="status">${rows.length} of ${D.runs.length} rows</span>
+            </div>
+            <div class="tablewrap"><table>
+              <thead><tr>${COLS.map(function (c) {
+                var on = sort.k === c.k;
+                return html`<th key=${c.k} aria-sort=${on ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick=${function () { toggle(c.k); }}>${c.label}<span class="arrow" aria-hidden="true">${on ? (sort.dir === 1 ? "▲" : "▼") : "⇅"}</span></button></th>`;
+              })}</tr></thead>
+              <tbody>${rows.map(function (x) {
+                return html`<tr key=${x.i}>${COLS.map(function (c) {
+                  return html`<td class=${cx(c.num && "num", c.k === "run" && "mono nw", c.k === "check" && "mono clip")} title=${c.k === "check" ? x.r.check : null}>${cellOf(x.r, c)}</td>`;
+                })}</tr>`;
+              })}</tbody>
+            </table></div>`
+        : html`<p class="muted">No runs.</p>`}
+    </div></div>`;
+  }
+
+  function Excluded() {
+    return html`<div class="section"><div class="card panel">
+      <h2 class="t">Excluded runs</h2>
+      ${D.excluded.length
+        ? html`<div class="tablewrap"><table><thead><tr><th>Run</th><th>Reason</th></tr></thead>
+            <tbody>${D.excluded.map(function (x, i) { return html`<tr key=${i}><td class="mono">${x[0]}</td><td>${x[1]}</td></tr>`; })}</tbody></table></div>`
+        : html`<p class="muted">No run was excluded.</p>`}
+    </div></div>`;
+  }
+
+  function Claims() {
+    var li = function (name) {
+      return function (s) { return html`<li><${A.Icon} name=${name} size=${16} /><span>${s}</span></li>`; };
+    };
+    return html`<div class="section"><div class="card panel claimbox">
+      <h2 class="t">What this can and cannot claim</h2>
+      <div class="claims" style=${{ marginTop: "12px" }}>
+        <div class="yes"><h3>It can claim</h3><ul>${D.can.map(li("check"))}</ul></div>
+        <div class="no"><h3>It cannot claim</h3><ul>${D.cannot.map(li("cross"))}</ul></div>
+      </div>
+    </div></div>`;
+  }
+
+  function App() {
+    return html`<div>
+      <${A.TopBar} kind="study" crumb="" />
+      <${Landing} />
+      <main class="wrap page">
+        <${RunCards} />
+        <${Numbers} />
+        <${LagPanel} />
+        <${EpisodePanel} />
+        <${RunsTable} />
+        <${Excluded} />
+        <${Claims} />
+        <p class="footer">Each verdict comes from running a test on each snapshot. No language model decides pass or fail.<br />Made by AgentBisect.</p>
+      </main>
+    </div>`;
+  }
+
+  var root = document.getElementById("app");
+  root.textContent = "";
+  A.render(html`<${App} />`, root);
+})();
+
 </script>
 </body>
 </html>
