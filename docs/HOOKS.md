@@ -91,3 +91,94 @@ uv run agentbisect report --trace runs/cc-<session_id>
   normal repos and slow for huge ones. The `timeout` of 60 seconds caps it.
 * Known limits: state outside the project directory is not captured, and a long session adds one
   hook process per tool call.
+
+---
+
+# Recording Alan Code (OpenCode in the Alan app)
+
+The agent under test is Alan Code: the Alan app runs OpenCode (`opencode serve`) in the folder of
+a conversation, with models proxied through Alan. We have no API key, so we watch OpenCode work
+instead of calling the model. A plugin inside OpenCode reports every tool call to
+`agentbisect.hooks.opencode`.
+
+## Steps for one run
+
+1. Prepare the run (this copies the task repo, takes the base snapshot, installs the plugin):
+
+   ```bash
+   uv run agentbisect record --task tasks/t01.yaml --model flash
+   ```
+
+   It prints the run folder and the workdir, `runs/<id>/workdir`, and saves the prompt in
+   `runs/<id>/PROMPT.txt`.
+2. In the Alan app, start a new conversation in the **workdir** folder (`runs/<id>/workdir`),
+   not in `runs/<id>`. OpenCode loads `.opencode/plugin/agentbisect.js` from that folder when it
+   starts.
+3. Pick the model, paste the contents of `PROMPT.txt`, and let the agent work until it stops.
+   Do not edit files yourself.
+4. Wait until the agent is idle. The plugin then runs `finalize` by itself.
+5. Check the run (`finalize.json` says which mode was used):
+
+   ```bash
+   cat runs/<id>/finalize.json
+   uv run agentbisect run --trace runs/<id>
+   uv run agentbisect report --trace runs/<id>
+   ```
+
+   If `finalize.json` is missing, run it by hand:
+   `uv run python -m agentbisect.hooks.opencode finalize --run-dir runs/<id>`.
+
+One conversation is one run. For a second run, prepare a new run folder.
+
+## What gets recorded
+
+| File in `runs/<id>/` | Written by | Content |
+|---|---|---|
+| `trace.jsonl`, `meta.json` | `step`, `finalize` | the trace (`source = alan_code`) |
+| `events.jsonl` | plugin `event` hook | OpenCode bus events: `message.updated`, `message.part.updated`, `session.*` |
+| `plugin.log` | plugin | plugin errors (it never throws into OpenCode) |
+| `hook.log` | python side | tracebacks from `step` and `finalize` |
+| `finalize.json` | `finalize` | mode (`hooks` or `events_only`), step count, model seen |
+| `sabotage.json`, `task.json` | `step`, prepare | sabotage state; the task spec |
+
+Step kinds: `write` is a write; `edit`, `multiedit`, `patch`, `apply_patch` are edits; `bash` is
+shell (exit code from `metadata.exit`); `read`, `glob`, `grep`, `list` are reads; everything else
+is `other`. Steps are snapshotted after writes, edits, shell commands, and unknown tools (`task`
+subagents, MCP tools); `todowrite`, `webfetch` and similar are not. Each step keeps
+`args["_session"]` and `args["_call"]` (OpenCode's session and call ids). Subagent calls are
+recorded too.
+
+`.opencode/` is excluded from snapshots, so the plugin never shows up as a change.
+
+## How the steps get their reasoning and tokens
+
+`tool.execute.after` gives the tool, its arguments, output and metadata, but not the model's
+text or token counts. `finalize` reads those from `events.jsonl`:
+
+* **Reasoning:** the assistant `text` and `reasoning` parts since the previous tool call (or the
+  start of that model request), joined.
+* **Tokens:** one model request is one `step-start` to `step-finish` group of parts. Its tokens go
+  to the first tool call of the group, and the other calls of that group get 0, so the sum over
+  steps counts each request once. `tokens_in = input + cache.read + cache.write` and
+  `tokens_out = output + reasoning`. A request with no tool call (the final answer) is not
+  attributed. A message with no `step-finish` parts uses its own `tokens`, on its first call.
+* **Model and cost:** model id from the first assistant message (the alias from `--model` stays
+  in `meta.model` when given); cost is the sum over assistant messages.
+
+## If `tool.execute.after` does not fire
+
+`trace.jsonl` stays empty. `finalize` then rebuilds the steps from completed tool parts in
+`events.jsonl` and takes one snapshot of the final workdir, attached to the last mutating step
+(`finalize.json` shows `"mode": "events_only"`). Limits: no per-step snapshots, so bisect can only
+tell that the final state differs from the base, and sabotage injection does not happen. Treat such
+a run as a smoke test, not as study data.
+
+## If events are missing too
+
+The trace still has the tool calls; reasoning and tokens stay empty. Check `plugin.log`.
+
+## Assumptions to confirm on the first live run
+
+Checked against OpenCode 1.19.3's strings, never against a live Alan run: the hook input shapes,
+the part and message event shapes, and that bash reports `metadata.exit`. If the exit code is
+missing, `exit_code` is `None` and the observed-step rule still accepts it.

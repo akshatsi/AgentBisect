@@ -107,7 +107,7 @@ def _reasoning(response: ChatResponse) -> str | None:
 # --------------------------------------------------------------------------- sabotage
 
 
-class _Sabotage:
+class Sabotage:
     """Applies one find/replace to the workdir at the first mutating step at or after ``at_step``."""
 
     def __init__(self, spec: SabotageSpec | None, workdir: Path) -> None:
@@ -211,7 +211,7 @@ def record(
     )
     trace = Trace(meta=meta)
     toolbox = Toolbox(workdir, shell_timeout_s=shell_timeout_s)
-    sabotage = _Sabotage(task.sabotage, workdir.resolve())
+    sabotage = Sabotage(task.sabotage, workdir.resolve())
     system = SYSTEM_PROMPT if native_tools else SYSTEM_PROMPT + "\n\n" + FALLBACK_PROTOCOL
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
