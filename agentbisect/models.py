@@ -89,6 +89,14 @@ class TraceMeta(BaseModel):
     cost_usd: float = 0.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     finished: bool = Field(default=False, description="True if the agent called finish.")
+    repo_origin: str | None = Field(
+        default=None, description="Path or git URL the workdir was copied or cloned from."
+    )
+    python: Path | None = Field(
+        default=None,
+        description="Interpreter of the project's own venv. The oracle runs tests with it; "
+        "None means the AgentBisect interpreter (fine for the practice repo).",
+    )
 
 
 class Trace(BaseModel):
