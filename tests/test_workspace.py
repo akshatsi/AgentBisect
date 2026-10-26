@@ -433,3 +433,17 @@ def test_prepare_repo_run_url_run_id_uses_repo_name(monkeypatch, tmp_path):
     run_dir = prepare_repo_run(url, "p", tmp_path / "runs", model_alias="flash", setup=False)
     assert run_dir.name.startswith("origin-flash-")
     assert os.path.isdir(run_dir / "workdir")
+
+
+def test_local_env_files_are_not_copied(tmp_path):
+    from agentbisect.workspace import materialize
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "a.py").write_text("x = 1\n")
+    (src / ".env").write_text("SECRET=1\n")
+    (src / ".env.local").write_text("SECRET=2\n")
+    (src / ".env.example").write_text("SECRET=\n")
+    dest = tmp_path / "copy"
+    materialize(str(src), dest)
+    assert sorted(p.name for p in dest.iterdir()) == [".env.example", "a.py"]

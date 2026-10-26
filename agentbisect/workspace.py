@@ -32,6 +32,10 @@ COPY_EXCLUDES = (
     "build",
     "dist",
     "*.egg-info",
+    # Secrets: the workdir is snapshotted and shown in reports, so local env files stay behind.
+    ".env",
+    ".env.local",
+    ".env.*.local",
 )
 #: Extras and dependency groups installed when the project defines them.
 TEST_EXTRAS = ("test", "tests", "testing", "dev")
