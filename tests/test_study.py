@@ -711,3 +711,18 @@ def test_piped_pytest_failure_starts_an_episode_and_a_cut_off_tail_is_not_a_pass
     only_cut = Trace(meta=trace.meta, steps=[fail, cut])
     (start,) = _episode_starts(only_cut, [node])
     assert not start.fixed
+
+
+def test_own_repo_run_without_planted_break_is_a_case_study(tmp_path):
+    from agentbisect.models import Step, ToolKind, Trace, TraceMeta, TraceSource
+    from agentbisect.study import _load_study_run
+
+    run = tmp_path / "proj-run"
+    meta = TraceMeta(
+        run_id="proj-run", source=TraceSource.ALAN_CODE, workdir=tmp_path, base_snapshot="0" * 40,
+        model="flash", finished=True, repo_origin="https://example.com/p.git",
+    )  # fmt: skip
+    Trace(meta=meta, steps=[Step(index=1, tool="read", kind=ToolKind.READ)]).save(run)
+    (run / "finalize.json").write_text('{"mode": "hooks", "per_step_snapshots": true}')
+    trace, reason = _load_study_run(run)
+    assert trace is None and "case study" in reason

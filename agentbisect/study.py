@@ -126,6 +126,10 @@ def _load_study_run(run_dir: Path) -> tuple[Trace | None, str | None]:
         return None, "trace has no steps"
     if "flash" not in (trace.meta.model or "").lower():
         return None, f"model {trace.meta.model!r} is not DeepSeek V4.1 Flash"
+    if trace.meta.task_id is None and trace.meta.sabotage_step is None:
+        # Own-repo runs differ in code and task, so they are case studies. A planted break on one
+        # still tests the bisector, so those runs stay and count only toward sabotage accuracy.
+        return None, "own-repo run without a planted break: a case study, not study data"
     return trace, None
 
 
