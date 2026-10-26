@@ -291,8 +291,7 @@ for j in 0..m:                                                   # reuse cached 
     (a cached decision made under a looser policy is extended with more runs until
      policy_scan decides; with p = 0 the cached single run stands)
 transitions = [c_j for j in 1..m if v[j-1] == PASS and v[j] == FAIL]
-non_monotone = any(v[i] == FAIL and v[j] == PASS for i < j)      # equivalently len(transitions) > 1
-                                                                  # or v[m] == PASS impossible by precondition
+non_monotone = len(transitions) > 1     # same as: some FAIL left of a PASS, since v[0]=PASS, v[m]=FAIL
 t_err = transitions[-1]                                           # last transition (§3.1)
 confidence = bisect_confidence(policy_scan, total decisions incl. endpoints)
 ```
@@ -312,16 +311,218 @@ False` with that transition.
 
 ## 4. Observed step and detection lag
 
-_In progress (next commit)._
+Implemented in `analyze.py` (core-builder). Inputs: the trace, `t_err` (for a non-monotone
+history, the last transition, §3.1), the check command, and the culprit diff
+(`S(c_lo)` → `S(c_hi)`).
+
+### 4.1 Test key and touched files
+
+- **Node IDs** of the check: every argument of the check command that contains `::`. Strip a
+  parameter suffix `[...]`. For each node ID `dir/test_x.py::TestC::test_f` the **key** is the
+  part from the file's basename on: `test_x.py::TestC::test_f`. The key matches with any path
+  prefix, so it survives a different working directory. The **function name** is the last
+  `::` part (`test_f`) and the **class-qualified name** is `TestC.test_f` (or `test_f` alone).
+- If the check names only files (no `::`), the key is each file's basename (`test_x.py`).
+- **Touched files:** `git diff --name-only` between the boundary snapshots, keeping `*.py`.
+
+### 4.2 Failure signal
+
+Step `s` shows a failure signal if **all** of these hold:
+
+1. `step.kind == SHELL` (file reads and edits do not count, since their output is file text);
+2. `step.exit_code != 0` (`None`, meaning unknown, is allowed);
+3. one line of `step.output` matches at least one pattern:
+
+| # | Pattern (Python regex, per line) | Example |
+|---|---|---|
+| P1 | `\b(FAILED\|ERROR)\b` and the line contains the key | `FAILED tests/test_auth.py::test_login - AssertionError` |
+| P2 | `^_{3,} (\S+\.)?{function}(\[.*\])? _{3,}$` (pytest's failure header; `{function}` regex-escaped, with the optional class prefix) | `______ TestAuth.test_login ______` |
+| P3 | `^_{3,} ERROR collecting \S*{file basename} _{3,}$` | `____ ERROR collecting tests/test_auth.py ____` |
+| P4 | `File "([^"]+)", line \d+` where the captured path ends with a touched file | `File "/w/src/auth/session.py", line 41, in login` |
+| P5 | `^(\S+\.py):\d+: ` where the captured path ends with a touched file | `src/auth/session.py:41: AssertionError` |
+
+"Ends with" compares whole path components: `a/src/x.py` ends with `src/x.py`, but `ax.py` does
+not end with `x.py`. Matching is case-sensitive. `observed_signal` stores the first matching line,
+cut to 200 characters.
+
+### 4.3 Definitions
+
+```
+t_obs  = min { s : t_err ≤ s ≤ n and step s shows a failure signal }   (None if the set is empty)
+lag    = t_obs − t_err                    (if t_obs exists)
+censored = t_obs is None
+steps_after_err = n − t_err               (exposure; the censor time for §5)
+wasted_tokens   = Σ_{s = t_err+1 .. n} (tokens_in(s) + tokens_out(s))
+total_tokens    = Σ_{s = 1 .. n} (tokens_in(s) + tokens_out(s))
+wasted_share    = wasted_tokens / total_tokens
+```
+
+All of `wasted_tokens` were spent while the code was broken: the final state fails (precondition),
+so every step after the last transition sits on a broken base.
+
+### 4.4 Edge cases
+
+- **Lag 0.** Step `t_err` itself can be the observing step (e.g. `sed -i … && pytest`).
+- **Signals before `t_err`** are ignored; they belong to earlier failures (including repaired
+  breaks in a non-monotone history).
+- **`t_err = n`** with no signal at step n: censored with `steps_after_err = 0`. It stays in the
+  KM risk set at time 0 (it could have shown lag 0 and did not).
+- **Multi-culprit runs** (auto-oracle): one analysis per check, each with its own key and its
+  own touched files.
+- **Truncated output** can hide the pytest summary, which pytest prints last. The recorder should
+  keep at least the last 4,000 characters of each output. Truncation biases toward later
+  `t_obs` and more censoring, never toward earlier.
+- Quiet flags that remove the summary (`-rN`, `--tb=no -qq`) can hide P1–P3; P4–P5 may still
+  match. Accept this; it biases the same way.
+- **The agent called `finish`** before step n: impossible (finish is the last step); exposure
+  always ends at n.
+
+---
 
 ## 5. Censoring and Kaplan–Meier
 
-_In progress (next commit)._
+### 5.1 Unit of analysis
 
-## 6. Confidence intervals (Wilson, bootstrap)
+Primary: **one row per run.** For a run with several culprits, use the culprit with the smallest
+`t_err` (ties: smallest `t_obs`, treating censored as infinite; then the check string in sort
+order). Sensitivity analysis: all `(run, culprit)` rows, reported beside the primary, labeled
+"rows not independent". Only bisectable runs with status FOUND enter the lag analysis. Sabotage
+runs are reported separately (§6.1) and are **not** pooled into the lag analysis, because the
+break is injected rather than made by the agent.
 
-_In progress (next commit)._
+Duration and event indicator per row:
+
+```
+duration = lag            if observed
+duration = n − t_err      if censored   (the agent stopped at step n without seeing it)
+event    = not censored
+```
+
+Lag is in steps (every step counts, read-only ones too).
+
+### 5.2 Kaplan–Meier (`stats.kaplan_meier`)
+
+At each distinct time `t` with `n_t` rows at risk (duration ≥ t), `d_t` events and `c_t`
+censorings at `t` (events before censorings at tied times):
+
+```
+S(t) = Π_{u ≤ t} (1 − d_u / n_u)
+Greenwood:  G(t) = Σ_{u ≤ t} d_u / (n_u (n_u − d_u))
+log-log 95% band:  se = sqrt(G(t)) / |ln S(t)|
+                   lower = S(t)^exp(+1.96·se),  upper = S(t)^exp(−1.96·se)
+```
+
+The band is (1, 1) while `S = 1`. When `S` drops to 0, the lower bound is 0 and the upper bound
+carries forward from the previous time (the band is undefined there; R's `survfit` gives NA).
+Read `S(t)` as "share of runs in which the agent had not yet seen the failure `t` steps after
+breaking the code". Report `1 − S(0)` as "noticed at once".
+
+### 5.3 Median and its CI (`stats.km_median_ci`)
+
+```
+median = first event time with S(t)     ≤ 0.5
+lower  = first event time with lower(t) ≤ 0.5
+upper  = first event time with upper(t) ≤ 0.5
+```
+
+This reads the CI off the pointwise band, as Brookmeyer and Crowley do (R `survival`'s
+`quantile.survfit` with `conf.type = "log-log"`; we skip R's midpoint rule when `S` equals 0.5
+exactly on a flat stretch). Any value may be **not reached** (`None`): print "not reached", never
+a number. A median that is not reached means fewer than half the agents ever noticed.
+
+Hand-checked example (in the tests): durations `1,2,2,3,4,5`, events `1,1,0,1,0,1` →
+`S = 0.833, 0.667, 0.444, 0.444, 0`; `G(3) = 1/30 + 1/20 + 1/6 = 0.25`; band at 3 is
+`(0.066, 0.785)`; median 3, CI (1, not reached).
+
+### 5.4 Caveat to print with the results
+
+Censoring here is not independent of lag: exposure `n − t_err` is short when the break comes
+late in a run with a step cap. KM assumes censoring carries no information about lag. State this
+in RESULTS.md next to the median.
+
+---
+
+## 6. Confidence intervals and comparisons
+
+### 6.1 Proportions: Wilson (`stats.wilson_interval`, z = 1.96)
+
+```
+center = (p̂ + z²/2n) / (1 + z²/n)
+half   = z · sqrt(p̂(1−p̂)/n + z²/4n²) / (1 + z²/n)
+```
+
+Clipped to [0, 1]; `n = 0` gives (0, 1). Example: 8/10 → (0.490, 0.943); 0/10 → (0, 0.278).
+Used for:
+
+| Quantity | k | n |
+|---|---|---|
+| bisectable share | runs with status FOUND | runs whose final state fails the oracle |
+| censoring rate | censored rows | rows in the lag analysis (§5.1) |
+| sabotage accuracy | sabotage runs with `t_err == sabotage_step` | all sabotage runs whose final state fails (not-bisectable counts as wrong) |
+| failed-run share | runs whose final state fails | all runs |
+
+### 6.2 Seeded bootstrap (`stats.bootstrap_ci`)
+
+For the **wasted-token share**, report the pooled ratio `Σ wasted_tokens / Σ total_tokens` over
+the rows of §5.1. CI: resample rows with replacement, `B = 2000`, `seed = 0`, percentile method;
+quantiles by nearest rank: lower = `r[⌊B·0.025⌋]` = `r[50]`, upper = `r[⌈B·0.975⌉ − 1]` = `r[1949]`
+of the sorted replicates. Also report the median per-run share, without a CI.
+
+### 6.3 Are per-model differences distinguishable?
+
+Decide with **one global test per quantity, α = 0.05**, chosen before seeing the data:
+
+- **Lag:** k-sample log-rank test across models (`stats.logrank_test`), χ² with k − 1 df. It uses
+  the censored rows correctly.
+- **Proportions** (censoring rate, bisectable share, failed-run share): permutation test on the
+  Pearson χ² of the 2×k table (`stats.proportion_test`, 10,000 permutations, seed 0). It stays
+  valid at small counts, where the χ² approximation does not.
+
+If the global p ≥ 0.05, write: "**not distinguishable at this sample size** (log-rank p = …)",
+and show the per-model medians with CIs for description only. If p < 0.05, run pairwise tests
+with Holm's correction (sort the m pairwise p-values ascending; reject the i-th (1-based) while
+`p_i ≤ 0.05 / (m − i + 1)`; stop at the first failure). Never claim a difference from
+non-overlapping or overlapping CIs alone.
+
+Expect "not distinguishable": with ~10 runs per model, a Wilson interval on a proportion is
+about ±0.3 wide, so only differences larger than about 0.5 in a rate can show.
+
+---
 
 ## 7. Cost estimate for the study
 
-_In progress (next commit)._
+### 7.1 Formula (`stats.estimate_study_cost`)
+
+```
+runs_m  = tasks × repeats + extra_m          (extra_m: e.g. 9 sabotage runs on the cheapest model)
+cost_m  = runs_m × (Ī × in_price_m + Ō × out_price_m) / 1e6        prices in USD per 1M tokens
+total   = Σ_m cost_m  (+ explainer: one model row with runs = expected culprits)
+print     total × 1.25 (margin) and compare with the remaining budget
+          (ALAN_SPEND_CAP_USD − spent so far), passed as cap_usd
+```
+
+`Ī`, `Ō` are tokens **per agent run** (summed over steps), from the one measured run in M2.
+Scaling: if the measured run took `s₁` steps and tasks allow `max_steps = s`, use
+`Ī × (s/s₁)²` and `Ō × (s/s₁)`. Input tokens grow at most quadratically in steps (each call
+resends a context that grows by about one step), so this is an upper bound when `s > s₁`.
+For the explainer use `Ī = 2,000`, `Ō = 200` per culprit (≤120 words out plus a diff in).
+
+### 7.2 Decision rule (from PLAN.md M3)
+
+If `with_margin_usd > cap_usd`: drop to 3 models (drop the most expensive per run), keep all
+tasks; recompute; only then cut tasks. Never raise repeats before cost is known. Print the
+estimate and ask the human before spending.
+
+### 7.3 Prices (fill in after the model probe; source: `docs/DECISIONS.md`)
+
+| Alias | API model ID | USD / 1M in | USD / 1M out |
+|---|---|---|---|
+| qwen | _TBD_ | _TBD_ | _TBD_ |
+| flash | _TBD_ | _TBD_ | _TBD_ |
+| glm | _TBD_ | _TBD_ | _TBD_ |
+| kimi | _TBD_ | _TBD_ | _TBD_ |
+| explainer (Nemotron 3.5 Lightning) | _TBD_ | _TBD_ | _TBD_ |
+
+Worked example with made-up prices (in the tests): 10 tasks × 1 repeat, model a at
+$0.10/$0.40 with 9 extra runs, model b at $1.00/$3.00, `Ī = 200k`, `Ō = 10k` →
+a: 19 × $0.024 = $0.456; b: 10 × $0.23 = $2.30; total $2.756; with margin $3.445.

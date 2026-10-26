@@ -246,3 +246,135 @@ def test_monte_carlo_p01_single_trial_seeded():
 
 def test_math_import_used():
     assert math.isclose(stats.sprt_untruncated_error(0.25, 1), 0.25)
+
+
+# --------------------------------------------------------------------------- §6 intervals
+
+
+def test_wilson_interval_hand_computed():
+    # 8/10: center 0.99208/1.38416, half 1.96*sqrt(0.025604)/1.38416
+    lo, hi = stats.wilson_interval(8, 10)
+    assert lo == pytest.approx(0.490157, abs=1e-5)
+    assert hi == pytest.approx(0.943318, abs=1e-5)
+    lo, hi = stats.wilson_interval(0, 10)
+    assert lo == 0.0
+    assert hi == pytest.approx(3.8416 / 13.8416, abs=1e-9)  # z^2 / (n + z^2)
+    assert stats.wilson_interval(0, 0) == (0.0, 1.0)
+    lo, hi = stats.wilson_interval(10, 10)
+    assert hi == 1.0
+    assert lo == pytest.approx(10 / 13.8416, abs=1e-9)
+
+
+def test_bootstrap_ci_seeded_and_sane():
+    data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+
+    def mean(xs):
+        return sum(xs) / len(xs)
+
+    a = stats.bootstrap_ci(data, mean, seed=3)
+    b = stats.bootstrap_ci(data, mean, seed=3)
+    assert a == b
+    assert a[0] < 5.5 < a[1]
+    assert a[0] > 3.0 and a[1] < 8.0
+    assert stats.bootstrap_ci([2.0] * 5, mean) == (2.0, 2.0)
+
+
+# --------------------------------------------------------------------------- §5 Kaplan–Meier
+
+DUR = [1, 2, 2, 3, 4, 5]
+OBS = [True, True, False, True, False, True]
+
+
+def test_kaplan_meier_hand_computed():
+    curve = stats.kaplan_meier(DUR, OBS)
+    assert [pt.time for pt in curve] == [1, 2, 3, 4, 5]
+    assert [pt.at_risk for pt in curve] == [6, 5, 3, 2, 1]
+    assert [pt.events for pt in curve] == [1, 1, 1, 0, 1]
+    assert [pt.censored for pt in curve] == [0, 1, 0, 1, 0]
+    s = [pt.survival for pt in curve]
+    assert s == pytest.approx([5 / 6, 4 / 6, 4 / 9, 4 / 9, 0.0])
+    # Greenwood: 1/30, + 1/20, + 1/6
+    assert curve[2].greenwood == pytest.approx(0.25)
+    # log-log band at t=3: se = sqrt(.25)/|ln(4/9)|, bounds (4/9)^exp(±1.96 se)
+    assert curve[2].lower == pytest.approx(0.066183, abs=1e-5)
+    assert curve[2].upper == pytest.approx(0.784913, abs=1e-5)
+    assert curve[1].lower == pytest.approx(0.194608, abs=1e-5)
+    assert curve[1].upper == pytest.approx(0.904436, abs=1e-5)
+    assert curve[0].lower == pytest.approx(0.273110, abs=1e-5)
+    # S = 0 at t=5: lower 0, upper carried forward
+    assert curve[4].lower == 0.0
+    assert curve[4].upper == curve[3].upper
+
+
+def test_km_median_ci_hand_computed():
+    res = stats.km_median_ci(DUR, OBS)
+    assert res.median == 3
+    assert res.lower == 1  # lower band is 0.273 <= 0.5 already at t=1
+    assert res.upper is None  # upper band never reaches 0.5: "not reached"
+    assert (res.n, res.events) == (6, 4)
+
+
+def test_km_all_censored_and_no_censoring():
+    res = stats.km_median_ci([3, 4, 5], [False, False, False])
+    assert res.median is None and res.lower is None and res.upper is None
+    curve = stats.kaplan_meier([1, 2, 3, 4], [True] * 4)
+    assert [pt.survival for pt in curve] == pytest.approx([0.75, 0.5, 0.25, 0.0])
+    assert stats.km_median_ci([1, 2, 3, 4], [True] * 4).median == 2
+
+
+def test_chi2_sf():
+    assert stats.chi2_sf(3.841459, 1) == pytest.approx(0.05, abs=1e-6)
+    assert stats.chi2_sf(5.0, 2) == pytest.approx(math.exp(-2.5))
+    assert stats.chi2_sf(7.814728, 3) == pytest.approx(0.05, abs=1e-6)
+    assert stats.chi2_sf(0.0, 2) == 1.0
+
+
+def test_logrank_two_groups_hand_computed():
+    # A dies at 1, 2; B at 3, 4. O-E for A: 0.5 + 2/3; V: 0.25 + 2/9.
+    res = stats.logrank_test({"A": ([1, 2], [True, True]), "B": ([3, 4], [True, True])})
+    u, v = 0.5 + 2 / 3, 0.25 + 2 / 9
+    assert res.chi2 == pytest.approx(u * u / v)
+    assert res.df == 1
+    assert res.p_value == pytest.approx(stats.chi2_sf(u * u / v, 1))
+
+
+def test_logrank_identical_groups_is_zero():
+    g = ([1, 2, 3], [True, True, False])
+    res = stats.logrank_test({"a": g, "b": g, "c": g})
+    assert res.chi2 == pytest.approx(0.0, abs=1e-12)
+    assert res.df == 2
+    assert res.p_value == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------- §7 cost
+
+
+def test_estimate_study_cost_hand_computed():
+    prices = [
+        stats.ModelPrice(alias="a", usd_per_mtok_in=0.1, usd_per_mtok_out=0.4),
+        stats.ModelPrice(alias="b", usd_per_mtok_in=1.0, usd_per_mtok_out=3.0),
+    ]
+    est = stats.estimate_study_cost(10, 1, prices, 200_000, 10_000, extra_runs={"a": 9})
+    # a: 19 runs x (0.02 + 0.004); b: 10 runs x (0.2 + 0.03)
+    assert est.runs == 29
+    assert est.per_model_usd["a"] == pytest.approx(0.456)
+    assert est.per_model_usd["b"] == pytest.approx(2.3)
+    assert est.total_usd == pytest.approx(2.756)
+    assert est.with_margin_usd == pytest.approx(3.445)
+    assert est.within_cap
+    with pytest.raises(ValueError):
+        stats.estimate_study_cost(1, 1, prices, 1, 1, extra_runs={"zzz": 1})
+
+
+def test_proportion_test():
+    # 2x2 table 8/10 vs 2/10: Pearson chi2 = 20 * (8*8 - 2*2)^2 / (10*10*10*10) = 7.2
+    res = stats.proportion_test({"a": (8, 10), "b": (2, 10)}, n_perm=2000, seed=1)
+    assert res.chi2 == pytest.approx(7.2)
+    # exact Fisher two-sided p for this table is 0.023; the permutation p must be close.
+    assert 0.01 < res.p_value < 0.04
+    same = stats.proportion_test({"a": (5, 10), "b": (5, 10), "c": (5, 10)}, n_perm=200)
+    assert same.chi2 == 0.0
+    assert same.p_value == 1.0
+    assert stats.proportion_test({"a": (3, 5), "b": (1, 5)}, seed=4) == stats.proportion_test(
+        {"a": (3, 5), "b": (1, 5)}, seed=4
+    )
