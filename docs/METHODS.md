@@ -337,16 +337,28 @@ history, the last transition, §3.1), the check command, and the culprit diff
 Step `s` shows a failure signal if **all** of these hold:
 
 1. `step.kind == SHELL` (file reads and edits do not count, since their output is file text);
-2. `step.exit_code != 0` (`None`, meaning unknown, is allowed);
-3. one line of `step.output` matches at least one pattern:
+2. `step.exit_code != 0` (`None`, meaning unknown, is allowed), **or** the step is a
+   *piped pytest run* (below) and the matching line is P1, P1b, P2 or P3;
+3. one line of `step.output`, **after removing ANSI escape sequences**
+   (`\x1b\[[0-9;]*[A-Za-z]`), matches at least one pattern:
 
 | # | Pattern (Python regex, per line) | Example |
 |---|---|---|
 | P1 | `\b(FAILED\|ERROR)\b` and the line contains the key | `FAILED tests/test_auth.py::test_login - AssertionError` |
+| P1b | `^ERROR \S*{file basename}(?!::)\b` (the test's file failed to collect; counts for every node ID in that file) | `ERROR tests/test_auth.py - SyntaxError` |
 | P2 | `^_{3,} {qualified}(\[.*\])? _{3,}$` (pytest's failure header; `{qualified}` regex-escaped: `TestC.test_f` when the node ID has a class, else `test_f`. Exact, so `TestOther.test_f` does not match) | `______ TestAuth.test_login ______` |
 | P3 | `^_{3,} ERROR collecting \S*{file basename} _{3,}$` | `____ ERROR collecting tests/test_auth.py ____` |
 | P4 | `File "([^"]+)", line \d+` where the captured path ends with a touched file | `File "/w/src/auth/session.py", line 41, in login` |
 | P5 | `^(\S+\.py):\d+: ` where the captured path ends with a touched file | `src/auth/session.py:41: AssertionError` |
+
+**Piped pytest run.** The command runs pytest (`pytest`, `py.test` or `-m pytest` as a word)
+and pipes its output on with a single `|` after the pytest call (not `||`), e.g.
+`pytest -q | tail -5` or `pytest 2>&1 | tee log`. The pipe hides pytest's exit code (the shell
+reports `tail`'s 0), so the exit code says nothing. Only the test-specific patterns count then:
+P4/P5 tracebacks with exit 0 are too easily printed by things other than a failure.
+False positives stay low because the command itself must run pytest: `cat old.log`,
+`grep FAILED log` and `less report.txt` never qualify. A command that also runs `set -o pipefail`
+reports the real exit code and goes through rule 2 as usual.
 
 "Ends with" compares whole path components: `a/src/x.py` ends with `src/x.py`, but `ax.py` does
 not end with `x.py`. Matching is case-sensitive. `observed_signal` stores the first matching line,
@@ -372,8 +384,15 @@ so every step after the last transition sits on a broken base.
 - **Lag 0.** Step `t_err` itself can be the observing step (e.g. `sed -i … && pytest`).
 - **Signals before `t_err`** are ignored; they belong to earlier failures (including repaired
   breaks in a non-monotone history).
-- **`t_err = n`** with no signal at step n: censored with `steps_after_err = 0`. It stays in the
-  KM risk set at time 0 (it could have shown lag 0 and did not).
+- **`t_err = n`, no chance to look.** If `t_err = n` and step n is not a shell step, the agent
+  never received a tool output after the break. The row is **no-opportunity**:
+  `censored = True`, `steps_after_err = 0`, with a flag. It counts in the broken-run share and
+  the bisectable share (and in sabotage accuracy for sabotage runs), but it is **left out of the
+  censoring rate, the KM curve and the wasted-token share**. Report the count of such runs on
+  its own line. If step n is a shell step, it could have shown lag 0: keep the row as usual
+  (lag 0, or censored with exposure 0 in the KM risk set at time 0). The same rule applies to
+  organic and planted breaks. Plant sabotage at `at_step ≤ max_steps − 3` so planted runs can
+  show a lag at all.
 - **Multi-culprit runs** (auto-oracle): one analysis per check, each with its own key and its
   own touched files.
 - **Truncated output** can hide the pytest summary, which pytest prints last. The recorder should
@@ -393,7 +412,7 @@ so every step after the last transition sits on a broken base.
 Primary: **one row per run.** For a run with several culprits, use the culprit with the smallest
 `t_err` (ties: smallest `t_obs`, treating censored as infinite; then the check string in sort
 order). Sensitivity analysis: all `(run, culprit)` rows, reported beside the primary, labeled
-"rows not independent". Only bisectable runs with status FOUND enter the lag analysis. Sabotage
+"rows not independent". Only bisectable runs with status FOUND enter the lag analysis, minus the no-opportunity rows (§4.4). Sabotage
 runs are reported separately (§6.1) and are **not** pooled into the lag analysis, because the
 break is injected rather than made by the agent.
 
