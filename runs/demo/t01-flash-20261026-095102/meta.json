@@ -1,0 +1,14 @@
+{
+  "run_id": "t01-flash-20261026-095102",
+  "source": "alan_code",
+  "workdir": "/Users/akshat/Desktop/Alan AI/runs/t01-flash-20261026-095102/workdir",
+  "base_snapshot": "0923f5bf0cc39e1ffcb547c6a70a35f7c264f52e",
+  "task_id": "t01",
+  "model": "flash",
+  "sabotage_step": null,
+  "cost_usd": 0.0,
+  "created_at": "2026-10-26T09:51:02.933198Z",
+  "finished": true,
+  "repo_origin": null,
+  "python": null
+}

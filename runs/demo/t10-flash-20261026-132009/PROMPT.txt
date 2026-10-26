@@ -1,0 +1,3 @@
+The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `'/Users/akshat/Desktop/Alan AI/.venv/bin/python3' -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+Bug report: `report.sales_by_category` includes cancelled orders, so category sales are too high after cancellations. Fix it so cancelled orders are ignored, matching what `report.top_products` already does. Do not change the cancelled order itself (its lines and status stay as they are, and cancelling must still restock). Add a regression test. All existing tests must keep passing.

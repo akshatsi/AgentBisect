@@ -1,0 +1,8 @@
+Two changes to this library:
+
+1. Bug: ordinal() gets negative numbers wrong. ordinal(-3) returns '-3th' but should return '-3rd'; likewise ordinal(-1) should be '-1st', ordinal(-22) '-22nd', and ordinal(-11) '-11th'. Fix it for every gender option and keep positive numbers exactly as they are.
+2. Feature: add an optional keyword argument sep to intcomma that overrides the thousands separator, e.g. intcomma(1234567, sep=' ') returns '1 234 567'. The default stays the active locale's separator, as today.
+
+Keep every other function's behaviour unchanged, update the docstrings, and add tests.
+
+Run the tests with `'/Users/akshat/Desktop/Alan AI/runs/humanize-flash-20261026-142024/venv/bin/python' -m pytest -q tests`. The shell has no `python` or `pytest` on its path, so use that interpreter.

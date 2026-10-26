@@ -1,0 +1,9 @@
+[project]
+name = "shop"
+version = "0.1.0"
+description = "A tiny catalog, inventory and order library. Fixture project for AgentBisect tasks."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

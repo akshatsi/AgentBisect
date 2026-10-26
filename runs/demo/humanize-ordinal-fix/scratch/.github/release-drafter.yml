@@ -1,0 +1,43 @@
+name-template: "$RESOLVED_VERSION"
+tag-template: "$RESOLVED_VERSION"
+
+categories:
+  - type: "pre-exclude"
+    when:
+      label: "changelog: skip"
+  - title: "Added"
+    semver-increment: "minor"
+    when:
+      labels:
+        - "changelog: Added"
+        - "enhancement"
+  - title: "Changed"
+    semver-increment: "minor"
+    when:
+      label: "changelog: Changed"
+  - title: "Deprecated"
+    semver-increment: "minor"
+    when:
+      label: "changelog: Deprecated"
+  - title: "Removed"
+    semver-increment: "major"
+    when:
+      label: "changelog: Removed"
+  - title: "Fixed"
+    semver-increment: "patch"
+    when:
+      labels:
+        - "changelog: Fixed"
+        - "bug"
+  - title: "Security"
+    semver-increment: "minor"
+    when:
+      label: "changelog: Security"
+
+autolabeler:
+  - label: "changelog: skip"
+    branch:
+      - "/pre-commit-ci-update-config/"
+
+template: |
+  $CHANGES

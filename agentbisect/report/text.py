@@ -75,8 +75,15 @@ class Shortener:
             return out + [p.replace(" ", "\\ ") for p in out if " " in p]  # shell-escaped form
 
         runs = variants(run_dir) + variants(meta.workdir.parent)
+        # A replayed demo run has no venv (meta.python is None) but its commands still name it.
+        venvs = [
+            Path(r) / "venv" / "bin" / name
+            for r in (run_dir, meta.workdir.parent)
+            if r
+            for name in ("python", "python3")
+        ]
         return cls(
-            python=_longest_first(variants(meta.python)),
+            python=_longest_first(variants(meta.python) + [v for p in venvs for v in variants(p)]),
             workdirs=_longest_first(variants(meta.workdir)),
             run_dirs=_longest_first(runs),
         )
@@ -96,7 +103,7 @@ def _longest_first(paths: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted(dict.fromkeys(p for p in paths if p), key=len, reverse=True))
 
 
-_LABEL_ARGS = ("path", "file", "file_path", "command", "cmd")
+_LABEL_ARGS = ("path", "file", "file_path", "filePath", "command", "cmd")
 
 
 def step_label(step: Step, shorten: Callable[[str], str] | None = None) -> str:

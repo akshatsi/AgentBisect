@@ -1,0 +1,13 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = true
+	ignorecase = true
+	precomposeunicode = true
+	autocrlf = false
+	safecrlf = false
+	fsmonitor = false
+[gc]
+	auto = 0
+[commit]
+	gpgsign = false

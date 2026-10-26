@@ -1,0 +1,3 @@
+The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `'/Users/akshat/Desktop/Alan AI/.venv/bin/python3' -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+Add two functions to shop/report.py: `average_order_value(orders)` returns the mean of `totals.total_cents` over non-cancelled orders as an integer, rounded half up (0 if there are none), and `largest_order(orders)` returns the non-cancelled order with the highest total (the lowest id wins ties), or `None`. Add tests. All existing tests must keep passing.

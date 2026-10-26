@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBisect report t10-flash-20261026-132009</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f27; --muted: #5d6675; --line: #dde1e8;
+  --red: #c62828; --red-bg: #fdecec; --amber: #b26a00; --amber-bg: #fff4de;
+  --blue: #1a5fb4; --blue-bg: #e8f0fb; --green: #1b7a3d; --green-bg: #e6f5ea;
+  --add-bg: #e6f6ea; --add-ink: #14612f; --del-bg: #fdeaea; --del-ink: #8f1d1d;
+  --hunk-bg: #e8f0fb; --code-bg: #f1f3f6; --shade: #fff0d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+    --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
+    --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
+    --add-bg: #12301f; --add-ink: #8be0a8; --del-bg: #3a1a1d; --del-ink: #ff9d9d;
+    --hunk-bg: #14263f; --code-bg: #0c0f14; --shade: #3a2c12;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+  --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
+  --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
+  --add-bg: #12301f; --add-ink: #8be0a8; --del-bg: #3a1a1d; --del-ink: #ff9d9d;
+  --hunk-bg: #14263f; --code-bg: #0c0f14; --shade: #3a2c12;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+main { max-width: 980px; margin: 0 auto; padding: 16px; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.sub { color: var(--muted); font-size: 13px; margin: 4px 0 0; overflow-wrap: anywhere; }
+button.theme {
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer;
+}
+section.card, .card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; margin: 14px 0;
+}
+.banner { border-left: 6px solid var(--red); background: var(--red-bg); }
+.banner.warn { border-left-color: var(--amber); background: var(--amber-bg); }
+.banner.ok { border-left-color: var(--green); background: var(--green-bg); }
+.banner .big { font-size: 20px; font-weight: 650; margin: 0 0 6px; overflow-wrap: anywhere; }
+.banner p { margin: 4px 0; overflow-wrap: anywhere; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.stat .v { font-size: 19px; font-weight: 650; }
+.stat .v small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.bar > i { display: block; height: 100%; background: var(--red); }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.pill.pass { color: var(--green); background: var(--green-bg); }
+.pill.fail { color: var(--red); background: var(--red-bg); }
+.pill.error { color: var(--amber); background: var(--amber-bg); }
+.strip { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 10px; }
+.strip a {
+  width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--muted); text-decoration: none; background: var(--panel);
+}
+.strip a.mut { background: var(--code-bg); color: var(--ink); border-color: var(--muted); }
+.strip a.broken { background: var(--shade); border-color: var(--amber); }
+.strip a.observed { background: var(--blue-bg); border: 2px solid var(--blue); color: var(--blue); }
+.strip a.decisive { background: var(--red); border-color: var(--red); color: #fff; font-weight: 700; }
+.strip a.fixbetween { background: var(--green-bg); border-color: var(--green); }
+.strip a.fixseen { background: var(--green-bg); border: 2px solid var(--green); color: var(--green); font-weight: 700; }
+.strip a.fixbreak { background: var(--green); border-color: var(--green); color: var(--panel); font-weight: 700; }
+.strip a.sabotage { outline: 2px dashed var(--amber); outline-offset: 1px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.legend span::before {
+  content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+  margin-right: 5px; vertical-align: -1px; border: 1px solid var(--muted); background: var(--panel);
+}
+.legend .l-mut::before { background: var(--code-bg); }
+.legend .l-broken::before { background: var(--shade); border-color: var(--amber); }
+.legend .l-obs::before { border: 2px solid var(--blue); }
+.legend .l-dec::before { background: var(--red); border-color: var(--red); }
+.legend .l-fixbreak::before { background: var(--green); border-color: var(--green); }
+.legend .l-fixbetween::before { background: var(--green-bg); border-color: var(--green); }
+.legend .l-fixseen::before { border: 2px solid var(--green); background: var(--green-bg); }
+.legend .l-sab::before { border: 2px dashed var(--amber); }
+ol.rows { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+ol.rows li {
+  display: flex; align-items: baseline; gap: 8px; padding: 3px 6px; border-radius: 5px;
+  border-left: 4px solid transparent; flex-wrap: wrap;
+}
+ol.rows li.ro { color: var(--muted); }
+ol.rows li.broken { background: var(--shade); border-left-color: var(--amber); }
+ol.rows li.observed { background: var(--blue-bg); border-left-color: var(--blue); }
+ol.rows li.decisive { background: var(--red-bg); border-left-color: var(--red); font-weight: 600; }
+ol.rows .n { min-width: 2.2em; text-align: right; color: var(--muted); }
+ol.rows .lbl { flex: 1 1 14em; overflow-wrap: anywhere; }
+ol.rows a { color: inherit; text-decoration: none; }
+ol.rows a:hover { text-decoration: underline; }
+.badge {
+  display: inline-block; min-width: 2.4em; text-align: center; font-size: 11px; padding: 0 4px;
+  border-radius: 4px; background: var(--code-bg); border: 1px solid var(--line); color: var(--muted);
+}
+.tag { font-size: 11px; padding: 0 6px; border-radius: 4px; font-weight: 600; }
+.tag.dec { background: var(--red); color: #fff; }
+.tag.obs { background: var(--blue); color: #fff; }
+.tag.brk { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber); }
+.tag.fix { background: var(--green-bg); color: var(--green); border: 1px solid var(--green); }
+.tag.sab { border: 1px dashed var(--amber); color: var(--amber); }
+.tag.prb { background: var(--code-bg); color: var(--muted); border: 1px solid var(--line); font-weight: 400; }
+pre {
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  overflow-x: auto; margin: 0; font-size: 12.5px; line-height: 1.45; white-space: pre;
+}
+pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.diff { padding: 0; }
+pre.diff span { display: block; padding: 0 10px; min-height: 1.45em; }
+pre.diff .add { background: var(--add-bg); color: var(--add-ink); }
+pre.diff .del { background: var(--del-bg); color: var(--del-ink); }
+pre.diff .hunk { background: var(--hunk-bg); color: var(--blue); }
+pre.diff .meta, pre.diff .file { color: var(--muted); font-weight: 600; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.tablewrap { overflow-x: auto; }
+.note { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.note.alert { color: var(--amber); }
+.ai { border: 1px dashed var(--muted); }
+.ai .label { font-weight: 700; }
+.truth.ok { color: var(--green); } .truth.bad { color: var(--red); }
+details.pertest > summary { cursor: pointer; }
+details.pertest > summary h3 { display: inline; margin: 0; }
+details.checks ul { margin: 4px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
+details.step { border-top: 1px solid var(--line); padding: 4px 0; }
+details.step > summary { cursor: pointer; font-size: 13px; overflow-wrap: anywhere; }
+details.step .body { padding: 6px 0 6px 12px; display: grid; gap: 8px; }
+details.step .cap { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .05em; }
+nav.toc ul { margin: 0; padding-left: 18px; }
+footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
+@media (max-width: 520px) {
+  main { padding: 12px 16px; }
+  .banner .big { font-size: 18px; }
+  .strip a { width: 26px; height: 26px; }
+}
+</style>
+</head>
+<body>
+<main>
+<header class="top">
+  <div>
+    <h1>AgentBisect report</h1>
+    <p class="sub">
+      Run <code>t10-flash-20261026-132009</code>
+ &middot; task <code>t10</code> &middot; model <code>flash (DeepSeek V4.1 Flash)</code>      &middot; recorded by Alan Code via OpenCode
+    </p>
+    <p class="sub">
+      10 steps (6 change the repo) &middot; 170k tokens
+      &middot; 2026-10-26 13:20 UTC
+    </p>
+  </div>
+  <button class="theme" id="theme" type="button" aria-label="Switch between light and dark">Theme</button>
+</header>
+
+<section class="card banner warn">
+  <p class="big">No culprit found</p>
+  <p>The bisect finished without a failing check to trace.
+Auto-oracle found no test that passed at the start and fails at the end.</p>
+</section>
+
+
+
+
+
+
+
+<section class="card" id="trace">
+  <h3>Full trace</h3>
+  <p class="note">Tool output and reasoning come from the agent run and are shown as plain text.</p>
+  <details class="step" id="step-1">
+    <summary>
+      <span class="badge">sh</span>
+      <strong>1</strong> shell: ls -R shop tests
+      <span class="note">changes repo &middot; 20972 tok
+&middot; exit 0</span>
+    </summary>
+    <div class="body">
+      <div><div class="cap">Arguments</div><pre>{
+  &#34;command&#34;: &#34;ls -R shop tests&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_104fcfb2b4f846ea8756145b&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">shop:
+__init__.py
+catalog.py
+errors.py
+inventory.py
+money.py
+orders.py
+pricing.py
+report.py
+
+tests:
+__init__.py
+conftest.py
+test_catalog.py
+test_inventory.py
+test_money.py
+test_orders.py
+test_pricing.py
+test_report.py
+</pre></div><p class="note">Snapshot <code>a329b66a16</code></p>    </div>
+  </details>
+  <details class="step" id="step-2">
+    <summary>
+      <span class="badge">rd</span>
+      <strong>2</strong> read shop/report.py
+      <span class="note">read only &middot; 0 tok
+</span>
+    </summary>
+    <div class="body">
+      <div><div class="cap">Arguments</div><pre>{
+  &#34;filePath&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/shop/report.py&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_c486f581403d4efcbf6f7d66&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">&lt;path&gt;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/shop/report.py&lt;/path&gt;
+&lt;type&gt;file&lt;/type&gt;
+&lt;content&gt;
+1: &#34;&#34;&#34;Text and CSV reports.&#34;&#34;&#34;
+2: 
+3: from __future__ import annotations
+4: 
+5: import csv
+6: import io
+7: from collections.abc import Iterable
+8: 
+9: from shop.catalog import Catalog
+10: from shop.inventory import Inventory
+11: from shop.money import format_cents
+12: from shop.orders import Order
+13: 
+14: 
+15: def order_summary(order: Order) -&gt; str:
+16:     lines = [f&#34;Order #{order.id} [{order.status}]&#34;]
+17:     for line in order.lines:
+18:         lines.append(
+19:             f&#34;  {line.qty} x {line.name} @ {format_cents(line.unit_price_cents)}&#34;
+20:             f&#34; = {format_cents(line.line_total_cents)}&#34;
+21:         )
+22:     t = order.totals
+23:     lines.append(f&#34;  Subtotal: {format_cents(t.subtotal_cents)}&#34;)
+24:     if t.discount_cents:
+25:         lines.append(f&#34;  Discount: -{format_cents(t.discount_cents)}&#34;)
+26:     lines.append(f&#34;  Tax: {format_cents(t.tax_cents)}&#34;)
+27:     lines.append(f&#34;  Shipping: {format_cents(t.shipping_cents)}&#34;)
+28:     lines.append(f&#34;  Total: {format_cents(t.total_cents)}&#34;)
+29:     return &#34;\n&#34;.join(lines)
+30: 
+31: 
+32: def sales_by_category(orders: Iterable[Order]) -&gt; dict[str, int]:
+33:     &#34;&#34;&#34;Line totals in cents per category, summed over ``orders``.&#34;&#34;&#34;
+34:     sales: dict[str, int] = {}
+35:     for order in orders:
+36:         for line in order.lines:
+37:             sales[line.category] = sales.get(line.category, 0) + line.line_total_cents
+38:     return dict(sorted(sales.items()))
+39: 
+40: 
+41: def top_products(orders: Iterable[Order], n: int = 3) -&gt; list[tuple[str, int]]:
+42:     &#34;&#34;&#34;The ``n`` best-selling SKUs by units, ignoring cancelled orders.&#34;&#34;&#34;
+43:     units: dict[str, int] = {}
+44:     for order in orders:
+45:         if order.status == &#34;cancelled&#34;:
+46:             continue
+47:         for line in order.lines:
+48:             units[line.sku] = units.get(line.sku, 0) + line.qty
+49:     ranked = sorted(units.items(), key=lambda kv: (-kv[1], kv[0]))
+50:     return ranked[:n]
+51: 
+52: 
+53: def inventory_report(inventory: Inventory, catalog: Catalog) -&gt; str:
+54:     rows = [&#34;SKU    Name        Qty&#34;]
+55:     for product in catalog:
+56:         rows.append(f&#34;{product.sku:&lt;6} {product.name:&lt;11} {inventory.stock(product.sku):&gt;3}&#34;)
+57:     return &#34;\n&#34;.join(rows)
+58: 
+59: 
+60: def orders_to_csv(orders: Iterable[Order]) -&gt; str:
+61:     &#34;&#34;&#34;One row per order line. Amounts are plain decimals (no symbol) so tools can parse them.&#34;&#34;&#34;
+62:     out = io.StringIO()
+63:     writer = csv.writer(out, lineterminator=&#34;\n&#34;)
+64:     writer.writerow([&#34;order_id&#34;, &#34;status&#34;, &#34;sku&#34;, &#34;qty&#34;, &#34;unit_price&#34;, &#34;line_total&#34;])
+65:     for order in orders:
+66:         for line in order.lines:
+67:             writer.writerow(
+68:                 [
+69:                     order.id,
+70:                     order.status,
+71:                     line.sku,
+72:                     line.qty,
+73:                     format_cents(line.unit_price_cents, symbol=&#34;&#34;),
+74:                     format_cents(line.line_total_cents, symbol=&#34;&#34;),
+75:                 ]
+76:             )
+77:     return out.getvalue()
+
+(End of file - total 77 lines)
+&lt;/content&gt;</pre></div>    </div>
+  </details>
+  <details class="step" id="step-3">
+    <summary>
+      <span class="badge">rd</span>
+      <strong>3</strong> read shop/orders.py
+      <span class="note">read only &middot; 22200 tok
+</span>
+    </summary>
+    <div class="body">
+<div><div class="cap">Reasoning</div><pre class="wrap">Let me look at orders.py, test_report.py, conftest.py.</pre></div>      <div><div class="cap">Arguments</div><pre>{
+  &#34;filePath&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/shop/orders.py&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_802fb2470a9f49b598214648&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">&lt;path&gt;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/shop/orders.py&lt;/path&gt;
+&lt;type&gt;file&lt;/type&gt;
+&lt;content&gt;
+1: &#34;&#34;&#34;Placing and cancelling orders against a catalog and an inventory.&#34;&#34;&#34;
+2: 
+3: from __future__ import annotations
+4: 
+5: from collections.abc import Mapping
+6: from dataclasses import dataclass, field
+7: 
+8: from shop import pricing
+9: from shop.catalog import Catalog
+10: from shop.errors import InvalidOrderError, OutOfStockError
+11: from shop.inventory import Inventory
+12: 
+13: 
+14: @dataclass(frozen=True)
+15: class OrderLine:
+16:     sku: str
+17:     name: str
+18:     unit_price_cents: int
+19:     qty: int
+20:     category: str
+21:     taxable: bool
+22:     weight_g: int
+23: 
+24:     @property
+25:     def line_total_cents(self) -&gt; int:
+26:         return pricing.line_total(self.unit_price_cents, self.qty)
+27: 
+28: 
+29: @dataclass
+30: class Order:
+31:     id: int
+32:     lines: list[OrderLine]
+33:     coupon: str | None
+34:     totals: pricing.Totals
+35:     status: str = field(default=&#34;placed&#34;)  # &#34;placed&#34; or &#34;cancelled&#34;
+36: 
+37: 
+38: class OrderBook:
+39:     def __init__(self, catalog: Catalog, inventory: Inventory) -&gt; None:
+40:         self._catalog = catalog
+41:         self._inventory = inventory
+42:         self._orders: dict[int, Order] = {}
+43:         self._next_id = 1
+44: 
+45:     def place_order(self, items: Mapping[str, int], coupon: str | None = None) -&gt; Order:
+46:         &#34;&#34;&#34;Reserve stock for ``items`` (sku -&gt; qty) and record the order.
+47: 
+48:         Either every line is fulfilled or nothing changes.
+49:         &#34;&#34;&#34;
+50:         if not items:
+51:             raise InvalidOrderError(&#34;order has no items&#34;)
+52:         for sku, qty in items.items():
+53:             if not isinstance(qty, int) or qty &lt;= 0:
+54:                 raise InvalidOrderError(f&#34;bad quantity for {sku}: {qty!r}&#34;)
+55:         lines = []
+56:         for sku in sorted(items):
+57:             product = self._catalog.get(sku)
+58:             lines.append(
+59:                 OrderLine(
+60:                     sku=sku,
+61:                     name=product.name,
+62:                     unit_price_cents=product.price_cents,
+63:                     qty=items[sku],
+64:                     category=product.category,
+65:                     taxable=product.taxable,
+66:                     weight_g=product.weight_g,
+67:                 )
+68:             )
+69:         totals = pricing.price_lines(lines, coupon)  # validates the coupon before stock moves
+70:         for line in lines:
+71:             if not self._inventory.can_fulfill(line.sku, line.qty):
+72:                 raise OutOfStockError(f&#34;{line.sku}: need {line.qty}&#34;)
+73:         for line in lines:
+74:             self._inventory.remove_stock(line.sku, line.qty)
+75:         order = Order(id=self._next_id, lines=lines, coupon=coupon, totals=totals)
+76:         self._orders[order.id] = order
+77:         self._next_id += 1
+78:         return order
+79: 
+80:     def get(self, order_id: int) -&gt; Order:
+81:         try:
+82:             return self._orders[order_id]
+83:         except KeyError:
+84:             raise InvalidOrderError(f&#34;unknown order {order_id}&#34;) from None
+85: 
+86:     def cancel(self, order_id: int) -&gt; Order:
+87:         order = self.get(order_id)
+88:         if order.status != &#34;placed&#34;:
+89:             raise InvalidOrderError(f&#34;order {order_id} is {order.status}&#34;)
+90:         for line in order.lines:
+91:             self._inventory.add_stock(line.sku, line.qty)
+92:         order.status = &#34;cancelled&#34;
+93:         return order
+94: 
+95:     def orders(self, status: str | None = None) -&gt; list[Order]:
+96:         found = [o for o in self._orders.values() if status is None or o.status == status]
+97:         return sorted(found, key=lambda o: o.id)
+
+(End of file - total 97 lines)
+&lt;/content&gt;</pre></div>    </div>
+  </details>
+  <details class="step" id="step-4">
+    <summary>
+      <span class="badge">rd</span>
+      <strong>4</strong> read tests/test_report.py
+      <span class="note">read only &middot; 0 tok
+</span>
+    </summary>
+    <div class="body">
+      <div><div class="cap">Arguments</div><pre>{
+  &#34;filePath&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/tests/test_report.py&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_df12b5bdc4a946f2a7feb80e&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">&lt;path&gt;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/tests/test_report.py&lt;/path&gt;
+&lt;type&gt;file&lt;/type&gt;
+&lt;content&gt;
+1: import csv
+2: import io
+3: 
+4: from shop.catalog import Catalog
+5: from shop.inventory import Inventory
+6: from shop.orders import OrderBook
+7: from shop.report import (
+8:     inventory_report,
+9:     order_summary,
+10:     orders_to_csv,
+11:     sales_by_category,
+12:     top_products,
+13: )
+14: 
+15: 
+16: def test_order_summary_text(book: OrderBook):
+17:     order = book.place_order({&#34;W-1&#34;: 2, &#34;F-1&#34;: 4}, coupon=&#34;SAVE10&#34;)
+18:     assert order_summary(order).splitlines() == [
+19:         &#34;Order #1 [placed]&#34;,
+20:         &#34;  4 x Apple @ $0.75 = $3.00&#34;,
+21:         &#34;  2 x Widget @ $3.00 = $6.00&#34;,
+22:         &#34;  Subtotal: $9.00&#34;,
+23:         &#34;  Discount: -$0.90&#34;,
+24:         &#34;  Tax: $0.48&#34;,
+25:         &#34;  Shipping: $6.00&#34;,
+26:         &#34;  Total: $14.58&#34;,
+27:     ]
+28: 
+29: 
+30: def test_order_summary_omits_discount_line_without_coupon(book: OrderBook):
+31:     order = book.place_order({&#34;W-1&#34;: 1})
+32:     assert &#34;Discount&#34; not in order_summary(order)
+33: 
+34: 
+35: def test_sales_by_category(book: OrderBook):
+36:     orders = [
+37:         book.place_order({&#34;W-1&#34;: 2, &#34;F-1&#34;: 4}),
+38:         book.place_order({&#34;W-2&#34;: 1, &#34;W-1&#34;: 5}),
+39:     ]
+40:     assert sales_by_category(orders) == {
+41:         &#34;electronics&#34;: 1250,
+42:         &#34;general&#34;: 600 + 1425,
+43:         &#34;grocery&#34;: 300,
+44:     }
+45: 
+46: 
+47: def test_top_products_orders_by_units_then_sku(book: OrderBook):
+48:     orders = [
+49:         book.place_order({&#34;W-1&#34;: 5, &#34;F-1&#34;: 5, &#34;B-1&#34;: 1}),
+50:         book.place_order({&#34;W-1&#34;: 1, &#34;F-2&#34;: 2}),
+51:     ]
+52:     assert top_products(orders, n=3) == [(&#34;W-1&#34;, 6), (&#34;F-1&#34;, 5), (&#34;F-2&#34;, 2)]
+53: 
+54: 
+55: def test_top_products_ignores_cancelled_orders(book: OrderBook):
+56:     keep = book.place_order({&#34;F-1&#34;: 3})
+57:     drop = book.place_order({&#34;W-1&#34;: 9})
+58:     book.cancel(drop.id)
+59:     assert top_products([keep, drop]) == [(&#34;F-1&#34;, 3)]
+60: 
+61: 
+62: def test_inventory_report(inventory: Inventory, catalog: Catalog):
+63:     inventory.remove_stock(&#34;B-1&#34;, 4)
+64:     lines = inventory_report(inventory, catalog).splitlines()
+65:     assert lines[0] == &#34;SKU    Name        Qty&#34;
+66:     assert lines[1] == &#34;B-1    Book          6&#34;
+67:     assert len(lines) == 7
+68: 
+69: 
+70: def test_orders_to_csv_uses_plain_decimals(book: OrderBook):
+71:     order = book.place_order({&#34;E-1&#34;: 1, &#34;W-1&#34;: 5})
+72:     rows = list(csv.reader(io.StringIO(orders_to_csv([order]))))
+73:     assert rows[0] == [&#34;order_id&#34;, &#34;status&#34;, &#34;sku&#34;, &#34;qty&#34;, &#34;unit_price&#34;, &#34;line_total&#34;]
+74:     assert rows[1] == [&#34;1&#34;, &#34;placed&#34;, &#34;E-1&#34;, &#34;1&#34;, &#34;1200.00&#34;, &#34;1200.00&#34;]
+75:     assert rows[2] == [&#34;1&#34;, &#34;placed&#34;, &#34;W-1&#34;, &#34;5&#34;, &#34;3.00&#34;, &#34;14.25&#34;]
+
+(End of file - total 75 lines)
+&lt;/content&gt;</pre></div>    </div>
+  </details>
+  <details class="step" id="step-5">
+    <summary>
+      <span class="badge">rd</span>
+      <strong>5</strong> read tests/conftest.py
+      <span class="note">read only &middot; 0 tok
+</span>
+    </summary>
+    <div class="body">
+      <div><div class="cap">Arguments</div><pre>{
+  &#34;filePath&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/tests/conftest.py&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_bee8700a94a848c0a5dc59cb&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">&lt;path&gt;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/tests/conftest.py&lt;/path&gt;
+&lt;type&gt;file&lt;/type&gt;
+&lt;content&gt;
+1: import pytest
+2: 
+3: from shop.catalog import Catalog, Product
+4: from shop.inventory import Inventory
+5: from shop.orders import OrderBook
+6: 
+7: PRODUCTS = [
+8:     Product(&#34;W-1&#34;, &#34;Widget&#34;, 300, &#34;general&#34;, True, 200),
+9:     Product(&#34;W-2&#34;, &#34;Gadget&#34;, 1250, &#34;electronics&#34;, True, 500),
+10:     Product(&#34;F-1&#34;, &#34;Apple&#34;, 75, &#34;grocery&#34;, False, 150),
+11:     Product(&#34;F-2&#34;, &#34;Bread&#34;, 225, &#34;grocery&#34;, False, 400),
+12:     Product(&#34;B-1&#34;, &#34;Book&#34;, 1599, &#34;general&#34;, True, 600),
+13:     Product(&#34;E-1&#34;, &#34;Laptop&#34;, 120000, &#34;electronics&#34;, True, 2500),
+14: ]
+15: STOCK = {&#34;W-1&#34;: 50, &#34;W-2&#34;: 20, &#34;F-1&#34;: 100, &#34;F-2&#34;: 30, &#34;B-1&#34;: 10, &#34;E-1&#34;: 3}
+16: 
+17: 
+18: @pytest.fixture
+19: def catalog() -&gt; Catalog:
+20:     return Catalog(PRODUCTS)
+21: 
+22: 
+23: @pytest.fixture
+24: def inventory(catalog: Catalog) -&gt; Inventory:
+25:     inv = Inventory(catalog)
+26:     for sku, qty in STOCK.items():
+27:         inv.add_stock(sku, qty)
+28:     return inv
+29: 
+30: 
+31: @pytest.fixture
+32: def book(catalog: Catalog, inventory: Inventory) -&gt; OrderBook:
+33:     return OrderBook(catalog, inventory)
+
+(End of file - total 33 lines)
+&lt;/content&gt;</pre></div>    </div>
+  </details>
+  <details class="step" id="step-6">
+    <summary>
+      <span class="badge">sh</span>
+      <strong>6</strong> shell: &#39;/Users/akshat/Desktop/Alan AI/.venv/bin/python3&#39; -m pytest ...
+      <span class="note">changes repo &middot; 24932 tok
+&middot; exit 0</span>
+    </summary>
+    <div class="body">
+<div><div class="cap">Reasoning</div><pre class="wrap">Fix sales_by_category to skip cancelled orders. Add regression test that includes cancelled order, and confirm lines/status unchanged and restock.
+
+Let me check test_orders for cancel test patterns perhaps. Not needed. Let me make edits.
+
+Also update docstring to mention ignoring cancelled orders.
+
+Regression test should assert sales excludes cancelled and order lines intact and stock restocked. Keep it focused.
+
+Let me run the tests first to establish baseline.</pre></div>      <div><div class="cap">Arguments</div><pre>{
+  &#34;command&#34;: &#34;&#39;/Users/akshat/Desktop/Alan AI/.venv/bin/python3&#39; -m pytest -q&#34;,
+  &#34;workdir&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_a664d6d6a0b74c3d9fa6bb5d&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">...................................................                      [100%]
+51 passed in 0.21s
+</pre></div><p class="note">Snapshot <code>a329b66a16</code></p>    </div>
+  </details>
+  <details class="step" id="step-7">
+    <summary>
+      <span class="badge">ed</span>
+      <strong>7</strong> edit shop/report.py
+      <span class="note">changes repo &middot; 25205 tok
+</span>
+    </summary>
+    <div class="body">
+      <div><div class="cap">Arguments</div><pre>{
+  &#34;filePath&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/shop/report.py&#34;,
+  &#34;oldString&#34;: &#34;def sales_by_category(orders: Iterable[Order]) -&gt; dict[str, int]:\n    \&#34;\&#34;\&#34;Line totals in cents per category, summed over ``orders``.\&#34;\&#34;\&#34;\n    sales: dict[str, int] = {}\n    for order in orders:\n        for line in order.lines:&#34;,
+  &#34;newString&#34;: &#34;def sales_by_category(orders: Iterable[Order]) -&gt; dict[str, int]:\n    \&#34;\&#34;\&#34;Line totals in cents per category, summed over ``orders``, ignoring cancelled orders.\&#34;\&#34;\&#34;\n    sales: dict[str, int] = {}\n    for order in orders:\n        if order.status == \&#34;cancelled\&#34;:\n            continue\n        for line in order.lines:&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_7d0f474e14084caeb02c262c&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">Edit applied successfully.</pre></div><p class="note">Snapshot <code>ba70baac47</code></p>    </div>
+  </details>
+  <details class="step" id="step-8">
+    <summary>
+      <span class="badge">ed</span>
+      <strong>8</strong> edit tests/test_report.py
+      <span class="note">changes repo &middot; 25547 tok
+</span>
+    </summary>
+    <div class="body">
+      <div><div class="cap">Arguments</div><pre>{
+  &#34;filePath&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir/tests/test_report.py&#34;,
+  &#34;oldString&#34;: &#34;def test_top_products_orders_by_units_then_sku(book: OrderBook):&#34;,
+  &#34;newString&#34;: &#34;def test_sales_by_category_ignores_cancelled_orders(book: OrderBook, inventory: Inventory):\n    keep = book.place_order({\&#34;W-1\&#34;: 2})\n    drop = book.place_order({\&#34;W-2\&#34;: 4, \&#34;F-1\&#34;: 10})\n    book.cancel(drop.id)\n\n    assert sales_by_category([keep, drop]) == {\&#34;general\&#34;: 600}\n\n    # Cancelling only flips the status; the order&#39;s own lines stay put.\n    assert drop.status == \&#34;cancelled\&#34;\n    assert [(line.sku, line.qty) for line in drop.lines] == [(\&#34;F-1\&#34;, 10), (\&#34;W-2\&#34;, 4)]\n    # And the cancelled stock comes back.\n    assert inventory.stock(\&#34;W-2\&#34;) == 20\n    assert inventory.stock(\&#34;F-1\&#34;) == 100\n\n\ndef test_top_products_orders_by_units_then_sku(book: OrderBook):&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_21de7dd70ee84d4f93636429&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">Edit applied successfully.</pre></div><p class="note">Snapshot <code>a395f0e529</code></p>    </div>
+  </details>
+  <details class="step" id="step-9">
+    <summary>
+      <span class="badge">sh</span>
+      <strong>9</strong> shell: &#39;/Users/akshat/Desktop/Alan AI/.venv/bin/python3&#39; -m pytest ...
+      <span class="note">changes repo &middot; 25661 tok
+&middot; exit 0</span>
+    </summary>
+    <div class="body">
+      <div><div class="cap">Arguments</div><pre>{
+  &#34;command&#34;: &#34;&#39;/Users/akshat/Desktop/Alan AI/.venv/bin/python3&#39; -m pytest -q&#34;,
+  &#34;workdir&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_36314a02b3704af1a6ef0a69&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap">....................................................                     [100%]
+52 passed in 0.07s
+</pre></div><p class="note">Snapshot <code>a395f0e529</code></p>    </div>
+  </details>
+  <details class="step" id="step-10">
+    <summary>
+      <span class="badge">sh</span>
+      <strong>10</strong> shell: git diff --stat &amp;&amp; git diff
+      <span class="note">changes repo &middot; 25788 tok
+&middot; exit 0</span>
+    </summary>
+    <div class="body">
+<div><div class="cap">Reasoning</div><pre class="wrap">Run just report tests to be sure, already done. Check git diff.</pre></div>      <div><div class="cap">Arguments</div><pre>{
+  &#34;command&#34;: &#34;git diff --stat &amp;&amp; git diff&#34;,
+  &#34;workdir&#34;: &#34;/Users/akshat/Desktop/Alan AI/runs/t10-flash-20261026-132009/workdir&#34;,
+  &#34;_session&#34;: &#34;ses_e87a07c87ffeg6FLu1gfImrsrq&#34;,
+  &#34;_call&#34;: &#34;call_e33d4a7e775049cbb81770b9&#34;
+}</pre></div>
+<div><div class="cap">Output</div><pre class="wrap"> shop/report.py       |  4 +++-
+ tests/test_report.py | 15 +++++++++++++++
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+diff --git a/shop/report.py b/shop/report.py
+index 14f0ecf..d057c53 100644
+--- a/shop/report.py
++++ b/shop/report.py
+@@ -30,9 +30,11 @@ def order_summary(order: Order) -&gt; str:
+ 
+ 
+ def sales_by_category(orders: Iterable[Order]) -&gt; dict[str, int]:
+-    &#34;&#34;&#34;Line totals in cents per category, summed over ``orders``.&#34;&#34;&#34;
++    &#34;&#34;&#34;Line totals in cents per category, summed over ``orders``, ignoring cancelled orders.&#34;&#34;&#34;
+     sales: dict[str, int] = {}
+     for order in orders:
++        if order.status == &#34;cancelled&#34;:
++            continue
+         for line in order.lines:
+             sales[line.category] = sales.get(line.category, 0) + line.line_total_cents
+     return dict(sorted(sales.items()))
+diff --git a/tests/test_report.py b/tests/test_report.py
+index 889ac44..51b214e 100644
+--- a/tests/test_report.py
++++ b/tests/test_report.py
+@@ -44,6 +44,21 @@ def test_sales_by_category(book: OrderBook):
+     }
+ 
+ 
++def test_sales_by_category_ignores_cancelled_orders(book: OrderBook, inventory: Inventory):
++    keep = book.place_order({&#34;W-1&#34;: 2})
++    drop = book.place_order({&#34;W-2&#34;: 4, &#34;F-1&#34;: 10})
++    book.cancel(drop.id)
++
++    assert sales_by_category([keep, drop]) == {&#34;general&#34;: 600}
++
++    # Cancelling only flips the status; the order&#39;s own lines stay put.
++    assert drop.status == &#34;cancelled&#34;
++    assert [(line.sku, line.qty) for line in drop.lines] == [(&#34;F-1&#34;, 10), (&#34;W-2&#34;, 4)]
++    # And the cancelled stock comes back.
++    assert inventory.stock(&#34;W-2&#34;) == 20
++    assert inventory.stock(&#34;F-1&#34;) == 100
++
++
+ def test_top_products_orders_by_units_then_sku(book: OrderBook):
+     orders = [
+         book.place_order({&#34;W-1&#34;: 5, &#34;F-1&#34;: 5, &#34;B-1&#34;: 1}),
+</pre></div><p class="note">Snapshot <code>a395f0e529</code></p>    </div>
+  </details>
+</section>
+
+<footer>
+  The verdict comes from running your check on each snapshot. No language model decides pass or fail.
+  Made by AgentBisect.
+</footer>
+</main>
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById("theme");
+  try { var saved = localStorage.getItem("agentbisect-theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
+  btn.addEventListener("click", function () {
+    var cur = root.getAttribute("data-theme");
+    if (!cur) cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    var next = cur === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("agentbisect-theme", next); } catch (e) {}
+  });
+  // Open the step detail when a timeline link points at it.
+  function openHash() {
+    var id = location.hash.slice(1), el = id && document.getElementById(id);
+    if (el && el.tagName === "DETAILS") el.open = true;
+  }
+  window.addEventListener("hashchange", openHash); openHash();
+})();
+</script>
+</body>
+</html>

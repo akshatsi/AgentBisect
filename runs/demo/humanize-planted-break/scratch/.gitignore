@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+coverage.xml
+.hypothesis/
+
+# Translations
+*.mo
+
+# Logs
+*.log
+
+# Environments
+.env
+
+# mkdocs documentation
+/site
+node_modules/
+
+# mypy
+.dmypy.json
+dmypy.json
+
+# PyCharm
+.idea/
+
+# hatch-vcs
+src/*/_version.py

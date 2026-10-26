@@ -1,0 +1,90 @@
+# Results (draft)
+
+Audited by math-analyst: pending
+
+Generated 2026-10-26 18:17 UTC by `agentbisect study`. Every number below comes from `study.json`.
+
+Design: METHODS §8 variant B: DeepSeek V4.1 Flash only in Alan Code, the 10 t-tasks plus 6 repeats (16 task runs) and 3 sabotage runs; sabotage runs count for accuracy, not for lag.
+
+## Scope
+
+Every claim here is about flash in Alan Code, on this fixture library and these tasks. It says nothing about other models, other agents, or other code.
+
+- Runs counted: 6 (1 more excluded, see below).
+- Models: flash.
+- Tasks: s03, t01, t06, t08, t10, unknown.
+- Runs that ended broken: 1 of 6; 1 bisectable, 0 where the agent saw the failure.
+
+## Headline numbers
+
+| metric | value | interval | n | method | note |
+|---|---|---|---|---|---|
+| Runs | 6 | - | 6 | count | 4 task runs, 2 sabotage runs (1 directories excluded) |
+| Broken-run share | 0% | 95% CI [0%, 49%] | 4 | Wilson 95% | 0/4: runs whose final state fails the oracle / task runs (sabotage runs excluded) |
+| Bisectable share of broken runs | not estimable | - | 0 | Wilson 95% | no data: broken runs with at least one culprit found / broken runs |
+| Censoring rate of broken runs | not estimable | - | 0 | Wilson 95% | no data: runs where the agent never saw the failure / bisectable broken runs |
+| Noticed at once (lag 0) | not estimable | - | 0 | Wilson 95% | no data: bisectable broken runs where the failing step itself showed the failure (1 - S(0), METHODS §5.2) |
+| Detection lag, Kaplan-Meier median (steps) | not estimable | - | 0 | Kaplan-Meier, Greenwood log-log 95% band (METHODS §5) | not estimated: 0 bisectable broken runs (0 observed); METHODS §8.4 needs at least 6 and 3 observed. Each run is listed as a row instead. |
+| Wasted-token share (pooled) | not estimable | - | 0 | pooled ratio | no bisectable run |
+| Wasted-token share (median per run) | not estimable | - | 0 | median | no bisectable run |
+| No opportunity to observe (break on last step) | 0 | - | 0 | count | 0 of 0 bisectable broken task runs; left out of the censoring rate, the Kaplan-Meier curve and the wasted-token share (METHODS §4.4). Sabotage runs with this flag: 1. |
+| Sabotage accuracy | 100% | 95% CI [34%, 100%] | 2 | Wilson 95% | 2/2: sabotage runs where the final-state culprit or a break the agent saw has the injected step as its decisive step / sabotage runs that fail at the end or show a seen break (not bisectable counts as wrong) |
+| Repaired-break episodes | 0 | - | 0 | count (METHODS §8.4) |  |
+| Repaired-break lag, median (steps) | not estimable | - | 0 | median over episodes; cluster bootstrap over runs, B=2000, seed 0 (METHODS §8.4) | no episodes |
+
+## Runs
+
+| task | run | check | steps | broken | t_err | t_obs | lag | wasted share | sabotage correct |
+|---|---|---|---|---|---|---|---|---|---|
+| t01 | t01-flash-20261026-095102 | - | 21 | no | - | - | - | - | - |
+| t10 | t10-flash-20261026-132009 | - | 10 | no | - | - | - | - | - |
+| t06 | t06-flash-20261026-132352 | - | 18 | no | - | - | - | - | - |
+| t08 | t08-flash-20261026-133042 | - | 18 | no | - | - | - | - | - |
+| s03 | caught-and-fixed | - | 19 | no | - | - | - | - | no result |
+| unknown | humanize-planted-break | test_naturalsize[test_args1-1.0 kB] | 8 | yes | 8 | - | censored (never seen, 0 steps) | 0.0% | yes |
+| unknown | humanize-planted-break | test_naturalsize[test_args2-1.0 kB] | 8 | yes | 8 | - | censored (never seen, 0 steps) | 0.0% | yes |
+| unknown | humanize-planted-break | test_naturalsize[test_args56-1.0K] | 8 | yes | 8 | - | censored (never seen, 0 steps) | 0.0% | yes |
+
+## Broken runs
+
+- unknown (humanize-planted-break): step 8 broke test_naturalsize[test_args1-1.0 kB]. The agent never saw it in the 0 steps after (censored).
+- unknown (humanize-planted-break): step 8 broke test_naturalsize[test_args2-1.0 kB]. The agent never saw it in the 0 steps after (censored).
+- unknown (humanize-planted-break): step 8 broke test_naturalsize[test_args56-1.0K]. The agent never saw it in the 0 steps after (censored).
+
+## Repaired breaks
+
+Breaks the agent saw and later fixed, bisected over the steps up to the sighting. None is censored, since we find them only when the agent saw them. This series is separate and is never pooled with the broken runs above.
+
+| run | check | seen at | t_err | lag | wasted tokens | note |
+|---|---|---|---|---|---|---|
+| caught-and-fixed | test_cancel_restores_stock | 13 | 9 | 4 | 112,179 |  |
+
+Episodes: 1.
+
+## Bisect accuracy on injected breaks
+
+The bisect found the injected step in 1 of 2 sabotage runs. A few runs show only that the pipeline works on real traces. Simulation results (not real agent runs) are in `docs/METHODS.md` section 8.5.
+
+## Excluded runs
+
+- humanize-ordinal-fix: own-repo run without a planted break: a case study, not study data
+
+## What this can and cannot claim
+
+It can claim:
+
+- How often this setup ended with a broken final state: 1 of 6 runs, with the interval in the headline numbers.
+- For each broken run, the exact step that broke the code and when the agent first saw it. Read each as a case study.
+- For breaks the agent saw and later fixed (the repaired-break series), how many steps passed before it saw them.
+- That the bisect works on real traces, from the runs where we injected a known break. A few runs show only that the pipeline works.
+
+It cannot claim:
+
+- Every claim here is about flash in Alan Code, on this fixture library and these tasks. It says nothing about other models, other agents, or other code.
+- Nothing about model size or any comparison between models. One model was tested.
+- A pooled median lag appears only with at least 6 bisectable broken runs, 3 of them observed. This study did not (1 bisectable, 0 observed).
+- The repaired-break series covers only breaks the agent saw. It says nothing about breaks the agent never saw, and we never pool it with the censored runs.
+- Rows from the same task are not independent, so read pooled numbers with care.
+- Only failures that a pytest test catches. A bad choice no test catches is invisible.
+
+Audited by math-analyst: pending

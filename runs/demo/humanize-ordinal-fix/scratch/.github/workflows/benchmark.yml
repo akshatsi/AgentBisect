@@ -1,0 +1,40 @@
+name: Benchmark
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions: {}
+
+env:
+  FORCE_COLOR: 1
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.15"
+          allow-prereleases: true
+
+      - name: Install gettext
+        run: |
+          sudo apt install gettext
+
+      - name: Generate translation binaries
+        run: |
+          scripts/generate-translation-binaries.sh
+
+      - name: Install dependencies
+        run: pip install -e ".[tests]"
+
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
+        with:
+          mode: simulation
+          run: pytest tests/test_benchmarks.py --codspeed

@@ -1,0 +1,27 @@
+name: Require PR label
+
+on:
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled, synchronize]
+
+jobs:
+  label:
+    runs-on: ubuntu-slim
+
+    permissions:
+      issues: write
+      pull-requests: write
+
+    steps:
+      - uses: mheap/github-action-required-labels@23e10fde7e062233401931a0eece796cd9bf3177 # v5.6.0
+        with:
+          mode: minimum
+          count: 1
+          labels: |
+            changelog: Added
+            changelog: Changed
+            changelog: Deprecated
+            changelog: Fixed
+            changelog: Removed
+            changelog: Security
+            changelog: skip

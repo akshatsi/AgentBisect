@@ -1,0 +1,3 @@
+The project is a small Python library in the working directory: shop/ (errors, money, catalog, inventory, pricing, orders, report) with tests in tests/. Run the tests with `'/Users/akshat/Desktop/Alan AI/.venv/bin/python3' -m pytest`. Money is always integer cents. Do not add third-party dependencies.
+
+Add `Catalog.update_price(sku, price_cents)` that changes a product's price and returns the updated `Product`. It must raise `UnknownProductError` for an unknown SKU and `ValueError` for a negative price. Orders placed before the change must keep the price they were placed at; new orders use the new price. Add tests for all of this. All existing tests must keep passing.

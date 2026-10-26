@@ -88,16 +88,21 @@ negative numbers and add a `sep` argument to `intcomma`.
 
 ## Reproduce
 
-No API key is needed; the traces and snapshots are in `runs/`.
+No API key or Alan account is needed. Every counted run ships in `runs/demo/` (trace, snapshots,
+verdicts); the bulky event logs and project venvs are left out, and replays use AgentBisect's own
+Python.
 
 ```bash
 uv sync
-uv run agentbisect study --runs runs                                 # writes runs/study/study.json, study.html
-uv run agentbisect run --trace runs/s03-flash-20261026-135147        # seen-and-fixed break: step 9
-uv run agentbisect run --trace runs/humanize-sabotage-flash          # planted break: step 8, 3 tests
-uv run agentbisect report --trace runs/humanize-sabotage-flash       # HTML report
-uv run pytest -q tests/test_stats.py                                 # simulation and statistics
+uv run agentbisect study --runs runs/demo                       # every number above
+uv run agentbisect run --trace runs/demo/caught-and-fixed       # s03: step 9, seen at 13, fixed
+uv run agentbisect run --trace runs/demo/humanize-planted-break # humanize: step 8, 3 tests
+uv run agentbisect report --trace runs/demo/humanize-planted-break
+uv run pytest -q tests/test_stats.py                            # simulation and statistics
 ```
+
+In `runs/demo/`, `caught-and-fixed` is s03 and `humanize-planted-break` and `humanize-ordinal-fix`
+are the two humanize runs; the four task runs keep their recorded ids.
 
 Audited by math-analyst: 0 mismatches in `study.json`. Every count, token total, lag and Wilson
 interval was recomputed from the run files. Wilson 0/4: upper = z²/(4 + z²) = 0.4899. Wilson

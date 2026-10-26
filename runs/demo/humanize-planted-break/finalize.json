@@ -1,0 +1,9 @@
+{
+  "mode": "hooks",
+  "steps": 8,
+  "matched_with_events": 8,
+  "model_seen": "deepseek/deepseek-v4.1-flash",
+  "finished": true,
+  "per_step_snapshots": true,
+  "resumed_conversation": false
+}

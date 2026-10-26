@@ -1,0 +1,17 @@
+.git
+.opencode/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+node_modules/
+.tox/
+build/
+dist/
+*.egg-info/
+htmlcov/
+.coverage
+.DS_Store

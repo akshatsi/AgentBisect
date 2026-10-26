@@ -1,0 +1,14 @@
+{
+ "key": "e1c25822724d28b55189b18f9cd8c0169f955fd60e1ae3362d5489e9aa0bd031",
+ "episodes": [
+  {
+   "run_id": "caught-and-fixed",
+   "check": "python -m pytest -q tests/test_orders.py::test_cancel_restores_stock",
+   "seen_at": 13,
+   "t_err": 9,
+   "lag": 4,
+   "wasted_tokens": 112179,
+   "reason": null
+  }
+ ]
+}

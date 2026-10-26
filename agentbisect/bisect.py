@@ -44,7 +44,8 @@ from agentbisect.oracle import (
 def describe_step(step: Step) -> str:
     """Short label such as ``edit calc/__init__.py`` or ``shell: pytest -q``."""
     args = step.args or {}
-    target = args.get("path") or args.get("file") or args.get("file_path")
+    # OpenCode (Alan Code) names it filePath; our harness and Claude Code use the others.
+    target = args.get("path") or args.get("file") or args.get("file_path") or args.get("filePath")
     if target:
         return f"{step.kind.value} {target}"
     cmd = args.get("command") or args.get("cmd")

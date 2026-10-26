@@ -1,0 +1,14 @@
+{
+  "run_id": "humanize-planted-break",
+  "source": "alan_code",
+  "workdir": "/Users/akshat/Desktop/Alan AI/runs/humanize-sabotage-flash/workdir",
+  "base_snapshot": "c610ea4361fc7305b25f1631c5278dc0499f2650",
+  "task_id": null,
+  "model": "flash",
+  "sabotage_step": 8,
+  "cost_usd": 0.0,
+  "created_at": "2026-10-26T14:43:43.292643Z",
+  "finished": true,
+  "repo_origin": "https://github.com/python-humanize/humanize",
+  "python": null
+}
