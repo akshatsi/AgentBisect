@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBisect report {{ meta.run_id }}</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f27; --muted: #5d6675; --line: #dde1e8;
+  --red: #c62828; --red-bg: #fdecec; --amber: #b26a00; --amber-bg: #fff4de;
+  --blue: #1a5fb4; --blue-bg: #e8f0fb; --green: #1b7a3d; --green-bg: #e6f5ea;
+  --add-bg: #e6f6ea; --add-ink: #14612f; --del-bg: #fdeaea; --del-ink: #8f1d1d;
+  --hunk-bg: #e8f0fb; --code-bg: #f1f3f6; --shade: #fff0d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+    --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
+    --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
+    --add-bg: #12301f; --add-ink: #8be0a8; --del-bg: #3a1a1d; --del-ink: #ff9d9d;
+    --hunk-bg: #14263f; --code-bg: #0c0f14; --shade: #3a2c12;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+  --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
+  --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
+  --add-bg: #12301f; --add-ink: #8be0a8; --del-bg: #3a1a1d; --del-ink: #ff9d9d;
+  --hunk-bg: #14263f; --code-bg: #0c0f14; --shade: #3a2c12;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+main { max-width: 980px; margin: 0 auto; padding: 16px; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.sub { color: var(--muted); font-size: 13px; margin: 4px 0 0; overflow-wrap: anywhere; }
+button.theme {
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer;
+}
+section.card, .card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; margin: 14px 0;
+}
+.banner { border-left: 6px solid var(--red); background: var(--red-bg); }
+.banner.warn { border-left-color: var(--amber); background: var(--amber-bg); }
+.banner .big { font-size: 20px; font-weight: 650; margin: 0 0 6px; overflow-wrap: anywhere; }
+.banner p { margin: 4px 0; overflow-wrap: anywhere; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.stat .v { font-size: 19px; font-weight: 650; }
+.stat .v small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.bar > i { display: block; height: 100%; background: var(--red); }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.pill.pass { color: var(--green); background: var(--green-bg); }
+.pill.fail { color: var(--red); background: var(--red-bg); }
+.pill.error { color: var(--amber); background: var(--amber-bg); }
+.strip { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 10px; }
+.strip a {
+  width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--muted); text-decoration: none; background: var(--panel);
+}
+.strip a.mut { background: var(--code-bg); color: var(--ink); border-color: var(--muted); }
+.strip a.broken { background: var(--shade); border-color: var(--amber); }
+.strip a.observed { background: var(--blue-bg); border: 2px solid var(--blue); color: var(--blue); }
+.strip a.decisive { background: var(--red); border-color: var(--red); color: #fff; font-weight: 700; }
+.strip a.sabotage { outline: 2px dashed var(--amber); outline-offset: 1px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.legend span::before {
+  content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+  margin-right: 5px; vertical-align: -1px; border: 1px solid var(--muted); background: var(--panel);
+}
+.legend .l-mut::before { background: var(--code-bg); }
+.legend .l-broken::before { background: var(--shade); border-color: var(--amber); }
+.legend .l-obs::before { border: 2px solid var(--blue); }
+.legend .l-dec::before { background: var(--red); border-color: var(--red); }
+.legend .l-sab::before { border: 2px dashed var(--amber); }
+ol.rows { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+ol.rows li {
+  display: flex; align-items: baseline; gap: 8px; padding: 3px 6px; border-radius: 5px;
+  border-left: 4px solid transparent; flex-wrap: wrap;
+}
+ol.rows li.ro { color: var(--muted); }
+ol.rows li.broken { background: var(--shade); border-left-color: var(--amber); }
+ol.rows li.observed { background: var(--blue-bg); border-left-color: var(--blue); }
+ol.rows li.decisive { background: var(--red-bg); border-left-color: var(--red); font-weight: 600; }
+ol.rows .n { min-width: 2.2em; text-align: right; color: var(--muted); }
+ol.rows .lbl { flex: 1 1 14em; overflow-wrap: anywhere; }
+ol.rows a { color: inherit; text-decoration: none; }
+ol.rows a:hover { text-decoration: underline; }
+.badge {
+  display: inline-block; min-width: 2.4em; text-align: center; font-size: 11px; padding: 0 4px;
+  border-radius: 4px; background: var(--code-bg); border: 1px solid var(--line); color: var(--muted);
+}
+.tag { font-size: 11px; padding: 0 6px; border-radius: 4px; font-weight: 600; }
+.tag.dec { background: var(--red); color: #fff; }
+.tag.obs { background: var(--blue); color: #fff; }
+.tag.brk { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber); }
+.tag.sab { border: 1px dashed var(--amber); color: var(--amber); }
+.tag.prb { background: var(--code-bg); color: var(--muted); border: 1px solid var(--line); font-weight: 400; }
+pre {
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  overflow-x: auto; margin: 0; font-size: 12.5px; line-height: 1.45; white-space: pre;
+}
+pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.diff { padding: 0; }
+pre.diff span { display: block; padding: 0 10px; min-height: 1.45em; }
+pre.diff .add { background: var(--add-bg); color: var(--add-ink); }
+pre.diff .del { background: var(--del-bg); color: var(--del-ink); }
+pre.diff .hunk { background: var(--hunk-bg); color: var(--blue); }
+pre.diff .meta, pre.diff .file { color: var(--muted); font-weight: 600; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.tablewrap { overflow-x: auto; }
+.note { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.note.alert { color: var(--amber); }
+.ai { border: 1px dashed var(--muted); }
+.ai .label { font-weight: 700; }
+.truth.ok { color: var(--green); } .truth.bad { color: var(--red); }
+details.step { border-top: 1px solid var(--line); padding: 4px 0; }
+details.step > summary { cursor: pointer; font-size: 13px; overflow-wrap: anywhere; }
+details.step .body { padding: 6px 0 6px 12px; display: grid; gap: 8px; }
+details.step .cap { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .05em; }
+nav.toc ul { margin: 0; padding-left: 18px; }
+footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
+@media (max-width: 520px) {
+  main { padding: 12px 16px; }
+  .banner .big { font-size: 18px; }
+  .strip a { width: 26px; height: 26px; }
+}
+</style>
+</head>
+<body>
+<main>
+<header class="top">
+  <div>
+    <h1>AgentBisect report</h1>
+    <p class="sub">
+      Run <code>{{ meta.run_id }}</code>
+      {% if meta.task_id %} &middot; task <code>{{ meta.task_id }}</code>{% endif %}
+      {% if model_label %} &middot; model <code>{{ model_label }}</code>{% endif %}
+      &middot; recorded by {{ source_label }}
+    </p>
+    <p class="sub">
+      {{ n_steps }} steps ({{ n_mutating }} change the repo) &middot; {{ total_tokens }} tokens
+      {% if cost %} &middot; cost {{ cost }}{% endif %}
+      &middot; {{ created }}
+    </p>
+  </div>
+  <button class="theme" id="theme" type="button" aria-label="Switch between light and dark">Theme</button>
+</header>
+
+{% if not has_bisect %}
+<section class="card banner warn">
+  <p class="big">Not bisected yet</p>
+  <p>No <code>bisect.json</code> in this run. Run <code>agentbisect run --trace &lt;run dir&gt;</code> first, then build this report again.</p>
+</section>
+{% elif not culprits %}
+<section class="card banner warn">
+  <p class="big">No culprit found</p>
+  <p>The bisect finished without a failing check to trace.
+  {% if auto_oracle %}Auto-oracle found no test that passed at the start and fails at the end.{% endif %}</p>
+</section>
+{% endif %}
+
+{% if many %}
+<nav class="card toc">
+  <h3>{{ n_found }} of {{ culprits|length }} checks bisected to a step</h3>
+  <ul>
+  {% for c in culprits %}
+    <li><a href="#{{ c.anchor }}"><code>{{ c.label }}</code></a>
+      {% if c.found %}broke at step {{ c.decisive_step }}{% else %}not bisectable{% endif %}</li>
+  {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+{% for c in culprits %}
+<section id="{{ c.anchor }}">
+{% if c.found %}
+  <div class="card banner">
+    <p class="big">{{ c.sentences[0] }}</p>
+    {% for s in c.sentences[1:] %}<p>{{ s }}</p>{% endfor %}
+    <p class="note">Check: <code>{{ c.check }}</code></p>
+    {% if c.ground_truth %}
+    <p class="truth {{ 'ok' if c.ground_truth_ok else 'bad' }}">Ground truth: {{ c.ground_truth }}
+      {{ 'Bisect found the same step.' if c.ground_truth_ok else 'Bisect found a different step.' }}</p>
+    {% endif %}
+    <div class="stats">
+      <div class="stat"><div class="k">Decisive step</div><div class="v">{{ c.decisive_step }}</div></div>
+      {% if c.analysis %}
+      <div class="stat"><div class="k">Noticed at</div>
+        <div class="v">{% if c.analysis.censored %}never{% else %}{{ c.analysis.t_obs }}{% endif %}</div></div>
+      <div class="stat"><div class="k">Detection lag</div>
+        <div class="v">{% if c.analysis.censored %}censored <small>(&ge; {{ c.analysis.steps_after_err }} steps)</small>
+          {% else %}{{ c.analysis.lag }} <small>{{ 'step' if c.analysis.lag == 1 else 'steps' }}</small>{% endif %}</div></div>
+      <div class="stat"><div class="k">Wasted tokens</div>
+        <div class="v" title="{{ c.analysis.wasted_tokens_exact }}">{{ c.analysis.wasted_tokens }}
+          <small>{{ c.analysis.share }} of run</small></div>
+        <div class="bar"><i style="width: {{ c.analysis.share_pct }}%"></i></div></div>
+      {% endif %}
+      {% if c.confidence %}
+      <div class="stat"><div class="k">Confidence</div><div class="v">{{ c.confidence }}</div></div>
+      {% endif %}
+    </div>
+    {% if c.analysis and c.analysis.signal %}
+    <p class="note">Failure signal the agent saw: <code>{{ c.analysis.signal }}</code></p>
+    {% endif %}
+    {% if c.non_monotone %}
+    <p class="note alert">Non-monotone history: the check flipped between pass and fail. Pass to fail
+      at steps {{ c.transitions|join(', ') }}. The decisive step is the last one, because the final
+      state still carries that break.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Timeline</h3>
+    <div class="legend">
+      <span class="l-mut">changes the repo</span>
+      <span>read only</span>
+      <span class="l-dec">decisive step</span>
+      <span class="l-broken">working on broken code</span>
+      <span class="l-obs">agent sees the failure</span>
+      {% if c.cells|selectattr('is_sabotage')|list %}<span class="l-sab">sabotage injected</span>{% endif %}
+    </div>
+    <div class="strip" role="list">
+      {% for cell in c.cells %}
+      <a role="listitem" class="{{ cell.classes }}" href="#{{ c.anchor }}-s{{ cell.index }}" title="{{ cell.title }}">{{ cell.index }}</a>
+      {% endfor %}
+    </div>
+    <ol class="rows">
+      {% for cell in c.cells %}
+      <li id="{{ c.anchor }}-s{{ cell.index }}" class="{{ 'mut' if cell.mutating else 'ro' }}{% if cell.is_decisive %} decisive{% endif %}{% if cell.is_observed %} observed{% endif %}{% if cell.is_broken %} broken{% endif %}">
+        <span class="n">{{ cell.index }}</span>
+        <span class="badge" title="{{ cell.kind }}">{{ cell.badge }}</span>
+        <span class="lbl"><a href="#step-{{ cell.index }}">{{ cell.label }}</a></span>
+        {% if cell.is_decisive %}<span class="tag dec">decisive step</span>{% endif %}
+        {% if cell.is_observed %}<span class="tag obs">agent sees failure</span>{% endif %}
+        {% if cell.is_broken and not cell.is_observed %}<span class="tag brk">working on broken code</span>{% endif %}
+        {% if cell.is_sabotage %}<span class="tag sab">sabotage injected</span>{% endif %}
+        {% if cell.probe %}<span class="tag prb">probe {{ cell.probe }}</span>{% endif %}
+        <span class="note">{{ cell.tokens }} tok</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Culprit diff: step {{ c.decisive_step }}</h3>
+    {% if c.diff %}
+    <pre class="diff"><code>{% for line in c.diff %}<span class="{{ line.cls }}">{{ line.text }}</span>{% endfor %}</code></pre>
+    {% if c.diff_truncated %}<p class="note">Diff clipped to the first lines.</p>{% endif %}
+    {% else %}
+    <p class="note">No file changes in this step's snapshot, or the shadow repo is not available.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>What the agent said before step {{ c.decisive_step }}</h3>
+    {% if c.reasoning %}<pre class="wrap">{{ c.reasoning }}</pre>
+    {% else %}<p class="note">The trace has no reasoning text for this step.</p>{% endif %}
+  </div>
+
+  {% if c.oracle_tail %}
+  <div class="card">
+    <h3>Oracle output at step {{ c.oracle_tail_step }} (last lines)</h3>
+    <pre class="wrap">{{ c.oracle_tail }}</pre>
+  </div>
+  {% endif %}
+{% else %}
+  <div class="card banner warn">
+    <p class="big">Not bisectable: <code>{{ c.label }}</code></p>
+    <p>{{ c.reason or 'No reason recorded.' }}</p>
+    <p class="note">Check: <code>{{ c.check }}</code></p>
+  </div>
+{% endif %}
+
+  <div class="card">
+    <h3>Probe log</h3>
+    {% if c.probes %}
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>#</th><th>step</th><th>role</th><th>verdict</th><th>runs</th><th>failed runs</th><th>seconds</th></tr></thead>
+      <tbody>
+      {% for p in c.probes %}
+        <tr><td>{{ p.number }}</td><td>{{ p.step }}</td><td>{{ p.role }}</td>
+          <td><span class="pill {{ p.verdict }}">{{ p.verdict }}</span></td>
+          <td>{{ p.runs }}</td><td>{{ p.fails }}</td><td>{{ '%.2f'|format(p.seconds) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}<p class="note">No probes were run.</p>{% endif %}
+    <p class="note">
+      {% if c.found %}Confidence {{ c.confidence or 'not recorded' }} that step {{ c.decisive_step }} is the decisive step.{% endif %}
+      {% if c.policy_rule %}Oracle rule: {{ c.policy_rule }} (assumed flip rate {{ c.flake_rate }}).{% endif %}
+      {% if c.non_monotone %}<strong>The history was non-monotone</strong>: the check flipped back and forth.{% else %}No sign of a non-monotone history.{% endif %}
+    </p>
+  </div>
+
+  {% if c.explanation %}
+  <div class="card ai">
+    <h3>AI explanation</h3>
+    <p class="note">Written by a language model to help you read the diff. It does not affect the verdict, and it can be wrong.</p>
+    <p class="aitext" style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ c.explanation }}</p>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+
+<section class="card" id="trace">
+  <h3>Full trace</h3>
+  <p class="note">Tool output and reasoning come from the agent run and are shown as plain text.</p>
+  {% for s in steps %}
+  <details class="step" id="step-{{ s.index }}">
+    <summary>
+      <span class="badge">{{ s.badge }}</span>
+      <strong>{{ s.index }}</strong> {{ s.label }}
+      <span class="note">{{ 'changes repo' if s.mutating else 'read only' }} &middot; {{ s.tokens }} tok
+        {% if s.exit_code is not none %}&middot; exit {{ s.exit_code }}{% endif %}</span>
+    </summary>
+    <div class="body">
+      {% if s.reasoning %}<div><div class="cap">Reasoning</div><pre class="wrap">{{ s.reasoning }}</pre></div>{% endif %}
+      <div><div class="cap">Arguments</div><pre>{{ s.args }}</pre></div>
+      {% if s.output %}<div><div class="cap">Output</div><pre class="wrap">{{ s.output }}</pre></div>{% endif %}
+      {% if s.truncated %}<p class="note">Long fields were clipped.</p>{% endif %}
+      {% if s.snapshot %}<p class="note">Snapshot <code>{{ s.snapshot }}</code></p>{% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</section>
+
+<footer>
+  The verdict comes from running your check on each snapshot. No language model decides pass or fail.
+  Made by AgentBisect.
+</footer>
+</main>
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById("theme");
+  try { var saved = localStorage.getItem("agentbisect-theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
+  btn.addEventListener("click", function () {
+    var cur = root.getAttribute("data-theme");
+    if (!cur) cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    var next = cur === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("agentbisect-theme", next); } catch (e) {}
+  });
+  // Open the step detail when a timeline link points at it.
+  function openHash() {
+    var id = location.hash.slice(1), el = id && document.getElementById(id);
+    if (el && el.tagName === "DETAILS") el.open = true;
+  }
+  window.addEventListener("hashchange", openHash); openHash();
+})();
+</script>
+</body>
+</html>
