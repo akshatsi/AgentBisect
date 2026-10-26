@@ -17,9 +17,29 @@ The verdict comes from running tests. No language model decides pass or fail. A 
 
 Our research question: how many steps pass between the step that broke the code and the first step where the agent could see the failure? We call that the **detection lag**. The finding below measures it across open models.
 
-## Quickstart
+## Use it on your own project
 
-No API key needed.
+Point AgentBisect at a Python project that has pytest tests. It copies the project, an agent works on the copy, and you bisect the result. Your original repo is not modified.
+
+```bash
+uv run agentbisect record --repo https://github.com/<you>/<project> \
+    --prompt "Add retry with backoff to the HTTP client"
+```
+
+`--repo` takes a git URL or a local path. Use `--prompt-file notes.txt` for a long prompt, `--ref <branch>` to start from a branch or tag, and `--model flash` to name the model you will pick.
+
+1. `record` copies or clones the project into `runs/<id>/workdir` and installs its dependencies into a venv at `runs/<id>/venv`. If the install fails it prints the error and the path of `runs/<id>/setup.log`.
+2. It then prints the work folder and your prompt. Open that folder in **Alan Code** (a new conversation), pick the model, paste the prompt, and let the agent work until it stops.
+3. Bisect: `uv run agentbisect run --trace runs/<id>`. With no `--check`, it bisects every test that passed at the start and fails at the end. Pass `--check "python -m pytest -q tests/test_x.py::test_y"` to pick one.
+4. Read the result: `uv run agentbisect report --trace runs/<id>` writes `runs/<id>/report.html`, one file that opens offline.
+
+**Claude Code instead of Alan Code.** A hook recorder works in place on any repo, with no copy: install the hooks once, use Claude Code as usual, then run steps 3 and 4 on the `runs/cc-<session>` folder it writes. See `docs/HOOKS.md`.
+
+**Security note.** Installing a project's dependencies runs its build code (`setup.py`, build backends, install scripts). Use `record --repo` on projects you trust, or pass `--no-setup` to skip the install and use AgentBisect's own interpreter. The agent itself also runs commands on your machine, as it does in any Alan Code or Claude Code session.
+
+## Quickstart with no API key
+
+Try the tool on a synthetic run first. It needs no API key and no agent.
 
 ```bash
 git clone <this repo> && cd <this repo>
@@ -86,17 +106,19 @@ Vocabulary: **trace** (the list of steps), **snapshot** (repo state after a step
 - Bisect assumes the oracle is deterministic enough. We handle flakiness with statistics. We do not remove it.
 - A non-monotone history with no repeated repo state is not flagged as non-monotone. For example, the test breaks, an edit fixes it, and a later edit breaks it in a new way. The decisive step is still the last break.
 - v1 supports Python and pytest only.
+- Projects whose tests need services or databases (Postgres, Redis, a network) will not work: the oracle runs the tests in a bare scratch folder with no services.
+- Dependency install must succeed. If the project cannot install into a fresh venv, `record --repo` stops with the log. `--no-setup` skips it, but then the tests must run on AgentBisect's interpreter.
 - The observed-step rule reads tool output. If the agent saw the failure in a way that left no trace in that output, we call the lag censored.
 
-## Record your own runs
+## Recording details
 
-**Alan Code (the main way).** The agent under test is Alan Code, which is OpenCode inside the Alan app. You start it by hand and a plugin records every step. No API key is needed.
+**Alan Code with a task (the main way for the study).** The agent under test is Alan Code, which is OpenCode inside the Alan app. You start it by hand and a plugin records every step. No API key is needed.
 
 ```bash
 uv run agentbisect record --task tasks/t03.yaml --model flash
 ```
 
-The command sets up the run and prints what to do:
+`record --task` copies a fixture repo from `tasks/` instead of your project. It sets up the run and prints what to do:
 
 1. Open the Alan app and start a **new** conversation in the printed work folder. Use one new conversation per run. If Alan resumes an earlier conversation, `agentbisect run` warns and the study excludes that run.
 2. Pick the model it names.
@@ -119,6 +141,7 @@ This spends credits. The command prints the model and the spend cap first, and `
 
 ```bash
 agentbisect record --task tasks/t03.yaml [--model flash] [--harness]   # set up a run in Alan Code (or run our own loop)
+agentbisect record --repo <path|url> --prompt "..." [--ref B] [--no-setup]   # same, on your own project
 agentbisect run    --trace runs/<id> [--check "<cmd>"]     # bisect; with no --check, find newly failing tests
 agentbisect report --trace runs/<id> [--explain]           # write runs/<id>/report.html
 agentbisect study  [--runs runs] [--rebisect] [--models flash]   # add up recorded runs: statistics, study.html, RESULTS.draft.md
