@@ -1,270 +1,88 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AgentBisect study</title>
-<style>
-:root {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f27; --muted: #5d6675; --line: #dde1e8;
-  --red: #c62828; --red-bg: #fdecec; --amber: #b26a00; --amber-bg: #fff4de;
-  --blue: #1a5fb4; --blue-bg: #e8f0fb; --green: #1b7a3d; --green-bg: #e6f5ea;
-  --code-bg: #f1f3f6; --shade: #fff0d6;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
-    --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
-    --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
-    --code-bg: #0c0f14; --shade: #3a2c12;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
-  --red: #ff6b6b; --red-bg: #3a1a1d; --amber: #f0b45a; --amber-bg: #3a2c12;
-  --blue: #6ea8fe; --blue-bg: #14263f; --green: #5fd08a; --green-bg: #12301f;
-  --code-bg: #0c0f14; --shade: #3a2c12;
-}
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-main { max-width: 980px; margin: 0 auto; padding: 16px; }
-header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-h1 { font-size: 18px; margin: 0; }
-h2 { font-size: 17px; margin: 0 0 10px; }
-.sub { color: var(--muted); font-size: 13px; margin: 4px 0 0; overflow-wrap: anywhere; }
-button.theme {
-  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
-  border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer;
-}
-section.card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 14px; margin: 14px 0;
-}
-.scope { border-left: 6px solid var(--blue); background: var(--blue-bg); }
-.scope p { margin: 4px 0; overflow-wrap: anywhere; }
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-.metric { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-.metric .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); overflow-wrap: anywhere; }
-.metric .v { font-size: 24px; font-weight: 650; overflow-wrap: anywhere; }
-.metric .v.na { font-size: 16px; color: var(--amber); }
-.metric .ci { font-size: 13px; }
-.metric .m { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.metric .sim { display: inline-block; font-size: 11px; padding: 0 6px; margin-top: 4px; border: 1px dashed var(--amber); color: var(--amber); border-radius: 4px; }
-.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
-.pill.pass { color: var(--green); background: var(--green-bg); }
-.pill.fail { color: var(--red); background: var(--red-bg); }
-.pill.cens { color: var(--amber); background: var(--amber-bg); border-style: dashed; border-color: var(--amber); }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 600; font-size: 12px; }
-td a { color: var(--blue); }
-.tablewrap { overflow-x: auto; }
-.note { font-size: 13px; color: var(--muted); margin: 6px 0; }
-.note.alert { color: var(--amber); }
-.chartwrap { overflow-x: auto; }
-svg.chart { display: block; min-width: 640px; width: 100%; height: auto; font: 12px system-ui, sans-serif; }
-svg.chart text { fill: var(--ink); }
-svg.chart .muted { fill: var(--muted); }
-svg.chart .axis { stroke: var(--line); stroke-width: 1; }
-svg.chart .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
-svg.chart .runend { stroke: var(--muted); stroke-width: 2; }
-svg.chart .span { stroke: var(--amber); stroke-width: 8; stroke-linecap: butt; }
-svg.chart .span.open { stroke: none; fill: var(--shade); }
-svg.chart .openbar { fill: var(--shade); stroke: var(--amber); stroke-width: 1.5; stroke-dasharray: 5 3; }
-svg.chart .arrow { fill: var(--amber); }
-svg.chart .err { fill: var(--red); }
-svg.chart .obs { fill: var(--blue); }
-svg.chart a:hover text { text-decoration: underline; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); margin: 0 0 8px; }
-.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -2px; }
-.legend .l-err { background: var(--red); border-radius: 50%; }
-.legend .l-obs { background: var(--blue); border-radius: 50%; }
-.legend .l-span { background: var(--amber); height: 6px; vertical-align: 0; }
-.legend .l-open { border: 1.5px dashed var(--amber); background: var(--shade); }
-.panel-sep { border-style: dashed; }
-ul.claims { margin: 6px 0; padding-left: 20px; }
-ul.claims li { margin: 3px 0; }
-.claimbox { border-left: 6px solid var(--amber); }
-.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
-@media (max-width: 520px) { main { padding: 12px 16px; } .metric .v { font-size: 21px; } }
-</style>
-</head>
-<body>
-<main>
-<header class="top">
-  <div>
-    <h1>AgentBisect study</h1>
-    <p class="sub">{{ created }}{% if design %} &middot; {{ design }}{% endif %}</p>
-  </div>
-  <button class="theme" id="theme" type="button">Light / dark</button>
-</header>
+{% extends "shell.html.j2" %}
+{% block noscript %}
+<style>#app { display: none; }</style>
+<main style="max-width: 980px; margin: 0 auto; padding: 16px; font-family: system-ui, sans-serif;">
+  <h1>AgentBisect study</h1>
+  <p>git bisect for coding agents. This page is interactive and needs JavaScript; the numbers are below as plain text.</p>
+  <p>{{ created }}{% if design %} &middot; {{ design }}{% endif %}</p>
 
-<section class="card scope">
   <h2>Scope</h2>
   <p>{{ scope }}</p>
   <p>{{ counts.runs }} run{{ '' if counts.runs == 1 else 's' }} counted,
      {{ counts.broken_runs }} ended broken{% if excluded %}, {{ excluded|length }} excluded{% endif %}.</p>
-</section>
 
-<section class="card">
+  {% if featured %}
+  <h2>Demo runs</h2>
+  <ul>
+    {% for f in featured %}
+    <li><a href="{{ f.href }}">{{ f.run_id }}</a>: {{ f.sentences|join(' ') }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
   <h2>Headline numbers</h2>
   {% if metrics %}
-  <div class="metrics">
+  <ul>
     {% for m in metrics %}
-    <div class="metric">
-      <div class="k">{{ m.name }}</div>
-      <div class="v{{ '' if m.estimable else ' na' }}">{{ m.value }}</div>
-      {% if m.interval %}<div class="ci mono">{{ m.interval }}</div>{% endif %}
-      <div class="m">n = {{ m.n }} &middot; {{ m.method }}</div>
-      {% if m.note %}<div class="m">{{ m.note }}</div>{% endif %}
-      {% if m.simulation %}<span class="sim">simulation, not real agent runs</span>{% endif %}
-    </div>
+    <li><strong>{{ m.name }}</strong>: {{ m.value }}{% if m.interval %} ({{ m.interval }}){% endif %},
+      n = {{ m.n }}, {{ m.method }}{% if m.note %}. {{ m.note }}{% endif %}{% if m.simulation %} (simulation, not real agent runs){% endif %}</li>
     {% endfor %}
-  </div>
+  </ul>
   {% else %}
-  <p class="note">No metrics were computed.</p>
+  <p>No metrics were computed.</p>
   {% endif %}
-</section>
 
-<section class="card">
   <h2>Detection lag in broken runs</h2>
   {% if lag_chart %}
-  <p class="legend">
-    <span><i class="l-err"></i>step that broke the code</span>
-    <span><i class="l-obs"></i>step where the agent first saw the failure</span>
-    <span><i class="l-span"></i>steps spent on broken code</span>
-    <span><i class="l-open"></i>open end: the agent never saw it (censored)</span>
-  </p>
-  {% set chart = lag_chart %}
-  {% include "_study_chart.svg.j2" %}
-  <p class="note">The horizontal axis counts steps. A grey tick marks where each run ended.</p>
+  <ul>{% for b in lag_chart.bars %}<li>{{ b.title }}</li>{% endfor %}</ul>
   {% else %}
-  <p class="note">No run ended broken with a decisive step, so there is nothing to draw.</p>
+  <p>No run ended broken with a decisive step, so there is nothing to draw.</p>
   {% endif %}
-</section>
 
-<section class="card panel-sep">
   <h2>Repaired breaks (a separate series)</h2>
-  <p class="note">The agent broke a test that passed at the start, saw the failure, and fixed it.
-    We find these only when the agent saw them, so none is censored. They say nothing about breaks
-    the agent never saw. Never pool this series with the broken runs above.</p>
-  {% if episode_chart %}
-  <p class="legend">
-    <span><i class="l-err"></i>step that broke the test</span>
-    <span><i class="l-obs"></i>step where the agent saw the failure</span>
-    <span><i class="l-span"></i>steps before it saw it</span>
-  </p>
-  {% set chart = episode_chart %}
-  {% include "_study_chart.svg.j2" %}
-  {% endif %}
+  <p>The agent broke a test that passed at the start, saw the failure, and fixed it. We find these only when the agent saw them, so none is censored. They say nothing about breaks the agent never saw. Never pool this series with the broken runs above.</p>
   {% if episodes %}
-  <div class="tablewrap">
   <table>
     <thead><tr><th>Run</th><th>Test</th><th>Seen at</th><th>t_err</th><th>Lag</th><th>Tokens wasted</th><th>Note</th></tr></thead>
     <tbody>
     {% for e in episodes %}
-    <tr>
-      <td class="mono">{% if e.href %}<a href="{{ e.href }}">{{ e.run_id }}</a>{% else %}{{ e.run_id }}{% endif %}</td>
-      <td class="mono">{{ e.check }}</td>
-      <td>{{ e.seen_at }}</td><td>{{ e.t_err }}</td><td>{{ e.lag }}</td><td>{{ e.wasted }}</td>
-      <td>{{ e.reason or '' }}</td>
-    </tr>
+    <tr><td>{% if e.href %}<a href="{{ e.href }}">{{ e.run_id }}</a>{% else %}{{ e.run_id }}{% endif %}</td>
+      <td>{{ e.check }}</td><td>{{ e.seen_at }}</td><td>{{ e.t_err }}</td><td>{{ e.lag }}</td><td>{{ e.wasted }}</td><td>{{ e.reason or '' }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
-  </div>
   {% else %}
-  <p class="note">No repaired breaks found.</p>
+  <p>No repaired breaks found.</p>
   {% endif %}
-</section>
 
-<section class="card">
   <h2>Runs</h2>
   {% if runs %}
-  <div class="tablewrap">
   <table>
-    <thead><tr>
-      <th>Task</th><th>Run</th><th>Test</th><th>Steps</th><th>Broken?</th><th>t_err</th><th>t_obs</th>
-      <th>Lag</th><th>Wasted share</th><th>Sabotage correct</th>
-    </tr></thead>
+    <thead><tr><th>Task</th><th>Run</th><th>Test</th><th>Steps</th><th>Broken?</th><th>t_err</th><th>t_obs</th><th>Lag</th><th>Wasted share</th><th>Sabotage correct</th></tr></thead>
     <tbody>
     {% for r in runs %}
-    <tr>
-      <td>{{ r.task }}</td>
-      <td class="mono">{% if r.href %}<a href="{{ r.href }}">{{ r.run_id }}</a>{% else %}{{ r.run_id }}{% endif %}</td>
-      <td class="mono">{{ r.check }}</td>
-      <td>{{ r.steps }}</td>
-      <td><span class="pill {{ r.broken_class }}">{{ r.broken }}</span></td>
-      <td>{{ r.t_err }}</td><td>{{ r.t_obs }}</td>
-      <td>{% if r.censored %}<span class="pill cens">{{ r.lag }}</span>{% else %}{{ r.lag }}{% endif %}</td>
-      <td>{{ r.share }}</td>
-      <td>{% if r.sabotage_class %}<span class="pill {{ r.sabotage_class }}">{{ r.sabotage }}</span>{% else %}{{ r.sabotage }}{% endif %}</td>
-    </tr>
+    <tr><td>{{ r.task }}</td>
+      <td>{% if r.href %}<a href="{{ r.href }}">{{ r.run_id }}</a>{% else %}{{ r.run_id }}{% endif %}</td>
+      <td>{{ r.check }}</td><td>{{ r.steps }}</td><td>{{ r.broken }}</td><td>{{ r.t_err }}</td><td>{{ r.t_obs }}</td>
+      <td>{{ r.lag }}</td><td>{{ r.share }}</td><td>{{ r.sabotage }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
-  </div>
   {% else %}
-  <p class="note">No runs.</p>
+  <p>No runs.</p>
   {% endif %}
-</section>
 
-<section class="card">
   <h2>Excluded runs</h2>
   {% if excluded %}
-  <div class="tablewrap">
-  <table>
-    <thead><tr><th>Run</th><th>Reason</th></tr></thead>
-    <tbody>
-    {% for rid, reason in excluded %}
-    <tr><td class="mono">{{ rid }}</td><td>{{ reason }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
+  <ul>{% for rid, reason in excluded %}<li>{{ rid }}: {{ reason }}</li>{% endfor %}</ul>
   {% else %}
-  <p class="note">No run was excluded.</p>
+  <p>No run was excluded.</p>
   {% endif %}
-</section>
 
-<section class="card claimbox">
   <h2>What this can and cannot claim</h2>
-  <div class="cols">
-    <div>
-      <strong>It can claim</strong>
-      <ul class="claims">{% for s in can_claim %}<li>{{ s }}</li>{% endfor %}</ul>
-    </div>
-    <div>
-      <strong>It cannot claim</strong>
-      <ul class="claims">{% for s in cannot_claim %}<li>{{ s }}</li>{% endfor %}</ul>
-    </div>
-  </div>
-</section>
-
-<footer>
-  Each verdict comes from running a test on each snapshot. No language model decides pass or fail.
-  Made by AgentBisect.
-</footer>
+  <h3>It can claim</h3>
+  <ul>{% for s in can_claim %}<li>{{ s }}</li>{% endfor %}</ul>
+  <h3>It cannot claim</h3>
+  <ul>{% for s in cannot_claim %}<li>{{ s }}</li>{% endfor %}</ul>
 </main>
-<script>
-(function () {
-  var root = document.documentElement;
-  var btn = document.getElementById("theme");
-  try { var saved = localStorage.getItem("agentbisect-theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
-  btn.addEventListener("click", function () {
-    var cur = root.getAttribute("data-theme");
-    if (!cur) cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    var next = cur === "dark" ? "light" : "dark";
-    root.setAttribute("data-theme", next);
-    try { localStorage.setItem("agentbisect-theme", next); } catch (e) {}
-  });
-})();
-</script>
-</body>
-</html>
+{% endblock %}

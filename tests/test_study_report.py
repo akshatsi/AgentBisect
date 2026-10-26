@@ -5,12 +5,25 @@ Nothing here depends on agentbisect/study.py: the summary is constructed directl
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from agentbisect.models import Metric, RepairEpisode, StudyRow, StudySummary
+from agentbisect.models import (
+    Analysis,
+    BisectResult,
+    BisectStatus,
+    CulpritReport,
+    Metric,
+    RepairEpisode,
+    RunReport,
+    StudyRow,
+    StudySummary,
+)
+from agentbisect.report.render import render_report
 from agentbisect.report.study import (
     build_context,
     count_rows,
@@ -20,6 +33,8 @@ from agentbisect.report.study import (
     render_study,
     results_markdown,
 )
+from agentbisect.synthetic import make_synthetic_run
+from tests.test_report import DATA_RE, needs_node, run_page
 
 EVIL = '<script>alert("x")</script>'
 
@@ -125,11 +140,22 @@ def make_summary() -> StudySummary:
 
 
 @pytest.fixture
-def page(tmp_path: Path) -> str:
-    return render_study(make_summary(), tmp_path).read_text()
+def page_file(tmp_path: Path) -> Path:
+    return render_study(make_summary(), tmp_path)
+
+
+@pytest.fixture
+def page(page_file: Path) -> str:
+    return page_file.read_text()
 
 
 # --------------------------------------------------------------------------- page
+
+
+def data_of(page: str) -> dict[str, Any]:
+    m = DATA_RE.search(page)
+    assert m, "no data blob"
+    return json.loads(m.group(1))
 
 
 def test_writes_one_static_file(tmp_path: Path) -> None:
@@ -138,33 +164,64 @@ def test_writes_one_static_file(tmp_path: Path) -> None:
 
 
 def test_page_works_offline(page: str) -> None:
-    assert "http://" not in page and "https://" not in page
+    outside_data = DATA_RE.sub("", page)
+    assert "http://" not in outside_data and "https://" not in outside_data
     assert not re.search(r"<script[^>]+src=", page)
     assert not re.search(r"<link[^>]+href=", page)
-    assert "@import" not in page
+    assert "@import" not in page and "url(" not in page
+    assert len(page) < 500_000
+
+
+def test_page_is_deterministic(tmp_path: Path) -> None:
+    first = render_study(make_summary(), tmp_path / "a").read_bytes()
+    second = render_study(make_summary(), tmp_path / "b").read_bytes()
+    assert first == second
 
 
 def test_every_metric_shown_with_value_ci_n_and_method(page: str) -> None:
+    data = data_of(page)
+    assert [m["name"] for m in data["metrics"]] == [m.name for m in make_summary().metrics]
     for m in make_summary().metrics:
-        assert m.name in page
+        assert m.name in page  # in the data and in the no-script text
         assert m.method in page
         assert metric_value(m) in page
         interval = metric_interval(m)
         if interval:
             assert interval in page
-    assert "75%" in page and "95% CI [30%, 95%]" in page
-    assert "not estimable" in page  # KM median not reached
+    by_name = {m["name"]: m for m in data["metrics"]}
+    first = by_name["broken-run share"]
+    assert first["value"] == "75%" and first["interval"] == "95% CI [30%, 95%]"
+    assert (first["raw"], first["low"], first["high"], first["percent"]) == (0.75, 0.3, 0.95, True)
+    assert by_name["median lag (steps)"]["value"] == "not estimable"  # KM median not reached
+    assert by_name["median lag (steps)"]["estimable"] is False
 
 
 def test_simulation_numbers_are_labelled(page: str) -> None:
     assert "simulation, not real agent runs" in page
+    flags = {m["name"]: m["simulation"] for m in data_of(page)["metrics"]}
+    assert flags["wrong-step rate, flip 0.1"] is True and flags["broken-run share"] is False
 
 
 def test_runs_table_has_every_row_and_links_to_run_reports(page: str) -> None:
-    for rid in ("t01-flash-1", "t04-flash-1", "t08-flash-1", "s01-flash-1"):
-        assert f'href="../{rid}/report.html"' in page
+    ids = ("t01-flash-1", "t04-flash-1", "t08-flash-1", "s01-flash-1")
+    for rid in ids:
+        assert f'href="../{rid}/report.html"' in page  # the no-script table
+    data = data_of(page)
+    assert [r["run_id"] for r in data["runs"]] == list(ids)
+    assert all(r["href"] == f"../{r['run_id']}/report.html" for r in data["runs"])
     assert 'href="/' not in page  # relative links only
-    assert "yes" in page and "censored (never seen, 13 steps)" in page
+    lags = {r["run_id"]: r["lag"] for r in data["runs"]}
+    assert lags["t08-flash-1"] == "censored (never seen, 13 steps)"
+    assert lags["t04-flash-1"] == "5"
+
+
+def test_last_step_break_is_not_called_never_seen(tmp_path: Path) -> None:
+    s = make_summary()
+    s.rows[2].no_opportunity = True  # t08: the break came on the last step
+    data = data_of(render_study(s, tmp_path).read_text())
+    row = next(r for r in data["runs"] if r["run_id"] == "t08-flash-1")
+    assert row["lag"] == "last step, no chance to see it" and row["censored"] is True
+    assert any(b["text"].startswith("last step") for b in data["lag_chart"]["bars"])
 
 
 def test_links_only_to_runs_that_have_a_report(tmp_path: Path) -> None:
@@ -172,19 +229,43 @@ def test_links_only_to_runs_that_have_a_report(tmp_path: Path) -> None:
     text = out.read_text()
     assert 'href="../t04-flash-1/report.html"' in text
     assert "../t01-flash-1/report.html" not in text
+    hrefs = {r["run_id"]: r["href"] for r in data_of(text)["runs"]}
+    assert hrefs["t01-flash-1"] is None and hrefs["t04-flash-1"]
 
 
-def test_censored_run_is_drawn_differently(page: str) -> None:
-    assert page.count('class="openbar"') == 1  # t08 only
-    assert page.count('class="arrow"') == 1
-    assert "censored, never seen (n=25)" in page
-    assert page.count('class="span"') >= 1  # the observed runs get a solid bar
+def test_censored_run_is_drawn_differently() -> None:
+    ctx = build_context(make_summary())
+    bars = {b.text: b for b in ctx["lag_chart"].bars}
+    open_bars = [b for b in ctx["lag_chart"].bars if b.kind == "censored"]
+    assert len(open_bars) == 1 and open_bars[0].t_obs is None  # t08 only
+    assert open_bars[0].text == "censored, never seen (n=25)"
+    assert bars["lag 5"].kind == "observed" and bars["lag 0"].kind == "instant"
+
+
+@needs_node
+def test_chart_draws_an_open_arrow_for_the_censored_run(page_file: Path) -> None:
+    out = run_page(
+        page_file,
+        """
+        const count = (c) => H.byClass(c).length;
+        return { open: count("open"), arrow: count("arrowhead"), span: count("span"),
+                 rows: count("lrow"), tip: H.byClass("tip").map((t) => t.textContent) };
+        """,
+    )
+    r = out["result"]
+    assert r["open"] == 1 and r["arrow"] == 1
+    assert r["span"] >= 2  # the solid bar of the observed run, in each chart
+    assert r["rows"] == 4  # three broken runs and one repaired break
+    assert any("censored, never seen (n=25)" in t for t in r["tip"])
 
 
 def test_chart_has_one_row_per_broken_run(page: str) -> None:
     ctx = build_context(make_summary())
     assert ctx["lag_chart"] is not None
     assert [b.kind for b in ctx["lag_chart"].bars] == ["observed", "censored", "instant"]
+    chart = data_of(page)["lag_chart"]
+    assert chart["axis_max"] == 30 and chart["ticks"][0] == 0
+    assert [b["end"] for b in chart["bars"]] == [30, 25, 20]
 
 
 def test_repaired_breaks_are_a_separate_labelled_panel(page: str) -> None:
@@ -193,10 +274,74 @@ def test_repaired_breaks_are_a_separate_labelled_panel(page: str) -> None:
     assert "oracle error at step 0" in page  # the unfound episode is listed, not drawn
     ctx = build_context(make_summary())
     assert len(ctx["episode_chart"].bars) == 1  # only the bisected episode is drawn
+    assert len(data_of(page)["episodes"]) == 2
+
+
+@needs_node
+def test_app_draws_every_section(page_file: Path) -> None:
+    text = run_page(page_file)["text"]
+    for heading in (
+        "AgentBisect",
+        "Headline numbers",
+        "Detection lag in broken runs",
+        "Repaired breaks (a separate series)",
+        "Excluded runs",
+        "What this can and cannot claim",
+    ):
+        assert heading in text
+    assert "git bisect for coding agents" in text
+    assert "75%" in text and "95% CI [30%, 95%]" in text and "not estimable" in text
+    assert "simulation, not real agent runs" in text
+    assert "t04-flash-0" in text and "Alan resumed an earlier conversation" in text
+    assert "did not (3 bisectable, 2 observed)" in text
+    assert "Nothing about model size" in text
+
+
+@needs_node
+def test_runs_table_sorts_and_filters(page_file: Path) -> None:
+    out = run_page(
+        page_file,
+        """
+        const table = () => H.byTag("table").filter((t) => t.textContent.includes("Sabotage correct"))[0];
+        const ids = () => table().children[1].children.map((tr) => tr.children[1].textContent);
+        const button = (label) => H.byTag("button").filter((b) => b.textContent.startsWith(label))[0];
+        const seen = { start: ids() };
+        H.click(button("Steps"));
+        await H.tick(30);
+        seen.asc = ids();
+        H.click(button("Steps"));
+        await H.tick(30);
+        seen.desc = ids();
+        H.click(button("Lag"));
+        await H.tick(30);
+        seen.lag = ids();
+        const filter = H.byTag("input").filter((i) => i.getAttribute("aria-label") === "Filter runs")[0];
+        H.input(filter, "s01");
+        await H.tick(30);
+        seen.filtered = ids();
+        seen.sort = table().children[0].children[0].children
+          .map((th) => th.getAttribute("aria-sort")).filter((v) => v !== "none");
+        return seen;
+        """,
+    )
+    r = out["result"]
+    assert r["start"] == ["t01-flash-1", "t04-flash-1", "t08-flash-1", "s01-flash-1"]
+    assert r["asc"] == [
+        "s01-flash-1",
+        "t01-flash-1",
+        "t08-flash-1",
+        "t04-flash-1",
+    ]  # 20, 21, 25, 30
+    assert r["desc"] == ["t04-flash-1", "t08-flash-1", "t01-flash-1", "s01-flash-1"]
+    # lag: 0 (s01), 5 (t04), then the run with no lag number sort last
+    assert r["lag"][:2] == ["s01-flash-1", "t04-flash-1"]
+    assert r["filtered"] == ["s01-flash-1"]
+    assert r["sort"] == ["ascending"]
 
 
 def test_exclusions_listed_with_reasons(page: str) -> None:
     assert "t04-flash-0" in page and "Alan resumed an earlier conversation" in page
+    assert data_of(page)["excluded"] == [["t04-flash-0", "Alan resumed an earlier conversation"]]
 
 
 def test_claims_box_states_the_limits(page: str) -> None:
@@ -207,6 +352,7 @@ def test_claims_box_states_the_limits(page: str) -> None:
     assert "did not (3 bisectable, 2 observed)" in page  # threshold not met
 
 
+@needs_node
 def test_untrusted_text_is_escaped(tmp_path: Path) -> None:
     s = make_summary()
     s.rows[1].run_id = f"r{EVIL}"
@@ -218,15 +364,29 @@ def test_untrusted_text_is_escaped(tmp_path: Path) -> None:
     s.episodes[0].check = f"pytest tests/t.py::{EVIL}"
     s.metrics[0].note = EVIL
     s.design = EVIL
-    text = render_study(s, tmp_path).read_text()
+    path = render_study(s, tmp_path)
+    text = path.read_text()
     assert EVIL not in text
-    assert "&lt;script&gt;" in text
+    assert "&lt;script&gt;" in text  # the no-script text is escaped
+    blob = DATA_RE.search(text)
+    assert blob is not None and "<" not in blob.group(1)
+    out = run_page(path)
+    assert "script" not in out["tags"] and "img" not in out["tags"]
+    assert EVIL in out["text"]  # drawn as text
 
 
 def test_empty_summary_renders(tmp_path: Path) -> None:
     text = render_study(StudySummary(), tmp_path).read_text()
     assert "No runs." in text and "No metrics were computed." in text
     assert "nothing to draw" in text
+    assert data_of(text)["lag_chart"] is None
+
+
+@needs_node
+def test_empty_summary_draws(tmp_path: Path) -> None:
+    out = run_page(render_study(StudySummary(), tmp_path))
+    assert "No runs." in out["text"] and "No metrics were computed." in out["text"]
+    assert "nothing to draw" in out["text"]
 
 
 def test_only_green_runs_renders_without_chart(tmp_path: Path) -> None:
@@ -234,7 +394,97 @@ def test_only_green_runs_renders_without_chart(tmp_path: Path) -> None:
     s.rows = [s.rows[0]]
     s.episodes = []
     text = render_study(s, tmp_path).read_text()
-    assert "nothing to draw" in text and 'class="openbar"' not in text
+    assert "nothing to draw" in text
+    assert data_of(text)["lag_chart"] is None and data_of(text)["episode_chart"] is None
+
+
+# --------------------------------------------------------------------------- landing cards
+
+
+def _make_demo_runs(root: Path) -> None:
+    """Three hand-named runs (a culprit, a repaired break, a green run) and one stamped run."""
+    check = "python -m pytest -q tests/test_calc.py::test_add"
+    broken = make_synthetic_run(root / "demo-broken", n_steps=10, break_at=4, observe_at=7)
+    make_synthetic_run(root / "demo-fixed", n_steps=10, break_at=4, fix_at=9, observe_at=7)
+    make_synthetic_run(root / "demo-green", n_steps=6, break_at=6)
+    make_synthetic_run(root / "t01-flash-20261026-095102", n_steps=6, break_at=6)
+    make_synthetic_run(root / "x-scratch", n_steps=6, break_at=6)
+    culprit = CulpritReport(
+        run_id="demo-broken",
+        check=check,
+        bisect=BisectResult(check=check, status=BisectStatus.FOUND, decisive_step=4),
+        analysis=Analysis(
+            t_err=4, t_obs=7, lag=3, censored=False, steps_after_err=6, wasted_tokens=900,
+            total_tokens=3000,
+        ),
+    )  # fmt: skip
+    (root / "demo-broken" / "bisect.json").write_text(
+        RunReport(run_id="demo-broken", checks=[check], culprits=[culprit]).model_dump_json()
+    )
+    episode = RepairEpisode(run_id="demo-fixed", check=check, seen_at=7, t_err=4, lag=3)
+    (root / "demo-fixed" / "bisect.json").write_text(
+        RunReport(run_id="demo-fixed", checks=[check], repaired=[episode]).model_dump_json()
+    )
+    (root / "demo-green" / "bisect.json").write_text(
+        RunReport(run_id="demo-green", checks=[], auto_oracle=True).model_dump_json()
+    )
+    assert broken.n == 10
+    for run in (
+        "demo-broken",
+        "demo-fixed",
+        "demo-green",
+        "t01-flash-20261026-095102",
+        "x-scratch",
+    ):
+        render_report(root / run)
+
+
+def test_landing_cards_show_the_hand_named_runs(tmp_path: Path) -> None:
+    _make_demo_runs(tmp_path)
+    s = make_summary()
+    s.excluded["demo-green"] = "own-repo run without a planted break: a case study"
+    linkable = {"demo-broken", "demo-fixed", "t01-flash-20261026-095102", "x-scratch"}
+    out = render_study(s, tmp_path / "study", link_prefix="../", linkable=linkable)
+    cards = data_of(out.read_text())["featured"]
+    # the culprit first, then the break the agent fixed, then the run that ended green
+    assert [c["run_id"] for c in cards] == ["demo-broken", "demo-fixed", "demo-green"]
+    assert [c["tag"] for c in cards] == [
+        "Planted break found",  # the synthetic run plants its break at step 4
+        "Caught and fixed",
+        "Ended green",
+    ]
+    assert cards[0]["sentences"][0] == "Step 4 (edit calc/__init__.py) broke test_add."
+    assert cards[0]["href"] == "../demo-broken/report.html"
+    assert "stamped" not in json.dumps(cards) and "t01-flash" not in json.dumps(cards)
+    assert "x-scratch" not in json.dumps(cards)  # scratch runs are never featured
+
+
+@needs_node
+def test_landing_cards_are_drawn_and_link_to_the_reports(tmp_path: Path) -> None:
+    _make_demo_runs(tmp_path)
+    out = render_study(
+        make_summary(),
+        tmp_path / "study",
+        link_prefix="../",
+        linkable={"demo-broken", "demo-fixed", "demo-green"},
+    )
+    r = run_page(
+        out,
+        """
+        return H.byClass("runcard").map((a) => [a.getAttribute("href"), a.textContent]);
+        """,
+    )
+    cards = r["result"]
+    assert [c[0] for c in cards] == [
+        f"../{i}/report.html" for i in ("demo-broken", "demo-fixed", "demo-green")
+    ]
+    assert "Step 4 (edit calc/__init__.py) broke test_add." in cards[0][1]
+
+
+def test_no_cards_without_a_linkable_set(tmp_path: Path) -> None:
+    _make_demo_runs(tmp_path)
+    out = render_study(make_summary(), tmp_path / "study")  # linkable=None: no run is vouched for
+    assert data_of(out.read_text())["featured"] == []
 
 
 def test_threshold_met_is_stated() -> None:

@@ -1,28 +1,30 @@
 """Render the study page (``study.html``) and the draft results text (``RESULTS.draft.md``).
 
-Input is a ``StudySummary``. Both outputs are static: the page has inline CSS and SVG and no
-network use. Run ids, task ids, checks and exclusion reasons come from disk, so the template runs
-with autoescape on and nothing is marked safe. Every number shown comes from ``summary.rows``,
-``summary.episodes`` or ``summary.metrics``; this module computes counts and ratios of those rows,
-never a statistic.
+Input is a ``StudySummary``. Both outputs are static: the page is one file with inline CSS and
+JS (Preact, see ``page.py``) and no network use. Run ids, task ids, checks and exclusion reasons
+come from disk, so they travel as escaped JSON text and the app draws them as text nodes. Every
+number shown comes from ``summary.rows``, ``summary.episodes`` or ``summary.metrics``; this module
+computes counts and ratios of those rows, never a statistic.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader
-
 from agentbisect.models import Metric, RepairEpisode, StudyRow, StudySummary
+from agentbisect.report.page import render_page
 from agentbisect.report.stable import write_text_stable
 from agentbisect.report.text import check_label
 
-TEMPLATE_DIR = Path(__file__).parent
 TEMPLATE_NAME = "study.html.j2"
+STYLES = ("study.css",)
+APP = "study_app.js"
+#: The landing page shows at most this many run cards.
+MAX_FEATURED = 3
 
 #: Pooled lag statistics need at least this many bisectable broken runs, and this many observed.
 POOLED_MIN_BROKEN = 6
@@ -30,17 +32,6 @@ POOLED_MIN_OBSERVED = 3
 
 #: A metric whose name has one of these words and whose value lies in [0, 1] is shown as a percent.
 _PERCENT_WORDS = ("share", "rate", "accuracy", "proportion", "fraction")
-
-# Chart geometry (SVG user units).
-_LABEL_W = 210
-_PLOT_X = 220
-_PLOT_W = 520
-_RIGHT_PAD = 130
-_ROW_H = 28
-_TOP = 30
-_BOTTOM = 14
-_WIDTH = _PLOT_X + _PLOT_W + _RIGHT_PAD
-
 
 # --------------------------------------------------------------------------- number formatting
 
@@ -331,19 +322,14 @@ def claims(c: Counts) -> tuple[list[str], list[str]]:
 
 
 @dataclass
-class Tick:
-    x: float
-    label: str
-
-
-@dataclass
 class Bar:
-    y: float
+    """One row of a lag chart. Steps are 1-based; the page scales them to the axis."""
+
     label: str
     title: str
-    x_err: float
-    x_obs: float | None  # None when censored
-    x_end: float  # right end of the run (censored arrow reaches it)
+    t_err: int
+    t_obs: int | None  # None when censored
+    end: int  # last step of the run (a censored bar reaches it)
     kind: str  # "observed" | "censored" | "instant"
     text: str
     href: str | None = None
@@ -351,13 +337,9 @@ class Bar:
 
 @dataclass
 class Chart:
-    width: int
-    height: int
-    ticks: list[Tick]
+    axis_max: int
+    ticks: list[int]
     bars: list[Bar]
-    axis_y: float
-    plot_x: int = _PLOT_X
-    plot_right: int = _PLOT_X + _PLOT_W
 
 
 def _nice_step(span: int) -> int:
@@ -367,23 +349,15 @@ def _nice_step(span: int) -> int:
     return max(1, span // 10)
 
 
-def _clip_label(text: str, limit: int = 30) -> str:
+def _clip_label(text: str, limit: int = 64) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "\u2026"
 
 
 def _make_chart(items: list[dict[str, Any]], axis_max: int) -> Chart:
     """``items``: label, title, t_err, t_obs (None = censored), end, text, href."""
     axis_max = max(axis_max, 1)
-    scale = _PLOT_W / axis_max
-
-    def x(v: float) -> float:
-        return round(_PLOT_X + v * scale, 1)
-
-    step = _nice_step(axis_max)
-    ticks = [Tick(x(v), str(v)) for v in range(0, axis_max + 1, step)]
     bars: list[Bar] = []
-    for i, it in enumerate(items):
-        y = _TOP + i * _ROW_H + _ROW_H / 2
+    for it in items:
         t_err, t_obs = it["t_err"], it["t_obs"]
         if t_obs is None:
             kind = "censored"
@@ -393,20 +367,20 @@ def _make_chart(items: list[dict[str, Any]], axis_max: int) -> Chart:
             kind = "observed"
         bars.append(
             Bar(
-                y=y,
                 label=_clip_label(it["label"]),
                 title=it["title"],
-                x_err=x(t_err),
-                x_obs=None if t_obs is None else x(t_obs),
-                x_end=x(it["end"]),
+                t_err=t_err,
+                t_obs=t_obs,
+                end=it["end"],
                 kind=kind,
                 text=it["text"],
                 href=it.get("href"),
             )
         )
-    height = _TOP + len(items) * _ROW_H + _BOTTOM + 8
     return Chart(
-        width=_WIDTH, height=height, ticks=ticks, bars=bars, axis_y=_TOP + len(items) * _ROW_H
+        axis_max=axis_max,
+        ticks=list(range(0, axis_max + 1, _nice_step(axis_max))),
+        bars=bars,
     )
 
 
@@ -417,7 +391,9 @@ def _row_chart(rows: list[StudyRow], href_for: Any) -> Chart | None:
     items = []
     for r in broken:
         censored = r.censored or r.t_obs is None
-        if censored:
+        if r.no_opportunity:
+            text = f"last step, no chance to see it (n={r.n_steps})"
+        elif censored:
             text = f"censored, never seen (n={r.n_steps})"
         elif r.t_obs == r.t_err:
             text = "lag 0"
@@ -483,6 +459,11 @@ class RunRowView:
     share: str
     sabotage: str
     sabotage_class: str
+    # numbers the page sorts by; None sorts last
+    t_err_n: int | None = None
+    t_obs_n: int | None = None
+    lag_n: float | None = None
+    share_n: float | None = None
 
 
 @dataclass
@@ -495,6 +476,11 @@ class MetricView:
     note: str | None
     simulation: bool
     estimable: bool
+    # for the interval graphic: the raw numbers and whether the scale is 0..1
+    raw: float | None = None
+    low: float | None = None
+    high: float | None = None
+    percent: bool = False
 
 
 @dataclass
@@ -524,7 +510,7 @@ def build_context(
     link_prefix: str = "../",
     linkable: Collection[str] | None = None,
 ) -> dict[str, Any]:
-    """Everything the page template needs.
+    """Everything the page needs.
 
     ``link_prefix`` is the path from ``study.html`` to the folder of run folders. ``linkable``
     limits links to run ids that have a ``report.html``; ``None`` links every run.
@@ -538,6 +524,10 @@ def build_context(
     for r in summary.rows:
         censored = bool(r.t_err is not None and (r.censored or r.t_obs is None))
         sab = sabotage_text(r, outcomes)
+        lag_n = None
+        if r.t_err is not None and not censored:
+            lag_n = r.lag if r.lag is not None else (r.t_obs or r.t_err) - r.t_err
+        share = _share(r)
         run_views.append(
             RunRowView(
                 run_id=r.run_id,
@@ -549,11 +539,15 @@ def build_context(
                 broken_class="fail" if r.final_failed else "pass",
                 t_err="-" if r.t_err is None else str(r.t_err),
                 t_obs="-" if r.t_obs is None else str(r.t_obs),
-                lag=lag_text(r),
+                lag="last step, no chance to see it" if r.no_opportunity else lag_text(r),
                 censored=censored,
                 share=share_text(r),
                 sabotage=sab,
                 sabotage_class=sabotage_class(sab),
+                t_err_n=r.t_err,
+                t_obs_n=r.t_obs,
+                lag_n=lag_n,
+                share_n=None if share is None else round(share, 4),
             )
         )
 
@@ -567,6 +561,10 @@ def build_context(
             note=m.note,
             simulation=is_simulation(m),
             estimable=m.value is not None,
+            raw=m.value,
+            low=m.ci_low,
+            high=m.ci_high,
+            percent=_is_percent(m),
         )
         for m in summary.metrics
     ]
@@ -600,19 +598,69 @@ def build_context(
         "episodes": episode_views,
         "lag_chart": _row_chart(summary.rows, href_for),
         "episode_chart": _episode_chart(summary.episodes, href_for),
+        "featured": [],
     }
+
+
+def featured_runs(
+    out_dir: Path,
+    link_prefix: str,
+    linkable: Collection[str] | None,
+    excluded: Collection[str] = (),
+) -> list[dict[str, Any]]:
+    """Cards for the hand-named runs next to the study folder (the demo runs).
+
+    Needs ``linkable`` (the caller knows which run folders are real) and a relative
+    ``link_prefix``. A run qualifies if its id is not one ``record`` made (those end in a
+    ``-YYYYMMDD-HHMMSS`` stamp), it has a trace and a ``report.html`` on disk, and it is a counted
+    run or an excluded case study. Runs named ``x-...`` are scratch runs and never shown.
+    """
+    from agentbisect.report.render import is_stamped, run_headline
+
+    if linkable is None or "://" in link_prefix or link_prefix.startswith("/"):
+        return []
+    runs_dir = (Path(out_dir) / link_prefix).resolve()
+    cards: list[dict[str, Any]] = []
+    for run_id in sorted(set(linkable) | set(excluded)):
+        if is_stamped(run_id) or run_id.startswith("x-"):
+            continue
+        run_dir = runs_dir / run_id
+        if not all((run_dir / f).exists() for f in ("meta.json", "trace.jsonl", "report.html")):
+            continue
+        try:
+            card = run_headline(run_dir)
+        except Exception:  # a run that cannot be read is left off the landing page
+            continue
+        card["href"] = f"{link_prefix}{run_id}/report.html"
+        cards.append(card)
+    cards.sort(key=lambda c: (c["rank"], c["run_id"]))
+    return cards[:MAX_FEATURED]
 
 
 # --------------------------------------------------------------------------- outputs
 
 
-def _env() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(str(TEMPLATE_DIR)),
-        autoescape=True,
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
+def page_data(ctx: dict[str, Any]) -> dict[str, Any]:
+    """The JSON the study page draws, from ``build_context`` output."""
+    chart = ctx["lag_chart"]
+    ep_chart = ctx["episode_chart"]
+    return {
+        "page": "study",
+        "created": ctx["created"],
+        "design": ctx["design"],
+        "scope": ctx["scope"],
+        "counts": asdict(ctx["counts"]),
+        "featured": ctx["featured"],
+        "metrics": [asdict(m) for m in ctx["metrics"]],
+        "has_simulation": ctx["has_simulation"],
+        "lag_chart": asdict(chart) if chart else None,
+        "episode_chart": asdict(ep_chart) if ep_chart else None,
+        "runs": [asdict(r) for r in ctx["runs"]],
+        "episodes": [asdict(e) for e in ctx["episodes"]],
+        "excluded": [list(x) for x in ctx["excluded"]],
+        "can": ctx["can_claim"],
+        "cannot": ctx["cannot_claim"],
+    }
 
 
 def render_study(
@@ -625,10 +673,15 @@ def render_study(
     """Write ``out_dir/study.html`` and return its path."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    html = (
-        _env()
-        .get_template(TEMPLATE_NAME)
-        .render(**build_context(summary, link_prefix=link_prefix, linkable=linkable))
+    ctx = build_context(summary, link_prefix=link_prefix, linkable=linkable)
+    ctx["featured"] = featured_runs(out_dir, link_prefix, linkable, summary.excluded)
+    html = render_page(
+        TEMPLATE_NAME,
+        title="AgentBisect study",
+        data=page_data(ctx),
+        app=APP,
+        styles=STYLES,
+        **ctx,
     )
     out = out_dir / "study.html"
     write_text_stable(out, html)
