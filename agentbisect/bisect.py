@@ -374,6 +374,28 @@ def _suite_problem(run: OracleRun, where: str, timeout_s: float) -> str | None:
     return None
 
 
+def suite_outcomes(
+    run_dir: Path, sha: str, timeout_s: float, suite_runner: SuiteRunner | None = None
+) -> tuple[dict[str, str] | None, str | None]:
+    """Run the whole suite once on snapshot ``sha``: ``(node ID -> PASSED/FAILED/ERROR, problem)``.
+
+    ``problem`` is a reason (and the outcomes are None) when the suite could not run. The study
+    uses it to learn which tests pass at step 0.
+    """
+    run_dir = Path(run_dir).resolve()
+    scratch = run_dir / "scratch"
+
+    def default_runner(target: str) -> tuple[OracleRun, str]:
+        snapshot.restore(run_dir, target, scratch)
+        return run_command(f"{SUITE_CMD} {_SUITE_FLAGS}", scratch, timeout_s)
+
+    run, out = (suite_runner or default_runner)(sha)
+    problem = _suite_problem(run, "the base snapshot", timeout_s)
+    if problem:
+        return None, problem
+    return parse_outcomes(out), None
+
+
 def discover_failing_tests(
     trace: Trace, run_dir: Path, timeout_s: float, suite_runner: SuiteRunner | None = None
 ) -> tuple[list[str], str | None]:
