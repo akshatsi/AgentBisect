@@ -4,14 +4,31 @@
 
 An agent works for 20 minutes, makes 30 edits, and the tests go red. You see only the last error. AgentBisect saves the repo after every agent action, then binary-searches those saves with your failing test.
 
+Real output, from two runs shipped in `runs/demo/`. Both are real Alan Code runs of DeepSeek V4.1 Flash. The first is on a small practice repo (`caught-and-fixed`). The second is on [python-humanize/humanize](https://github.com/python-humanize/humanize) (`humanize-planted-break`).
+
 ```
-╭────────────────────────────────── Verdict ───────────────────────────────────╮
-│ Step 8 (edit shop/catalog.py) broke test_add_duplicate_raises.               │
-│ The agent only noticed at step 11, so it spent 3 steps working on a broken   │
-│ base. It spent 38k tokens after the break (57% of the run).                  │
+$ uv run agentbisect run --trace runs/demo/caught-and-fixed
+╭────────────────────────────── Caught and fixed ──────────────────────────────╮
+│ Step 9 (edit tests/test_report.py) broke test_cancel_restores_stock.         │
+│ The agent saw it at step 13 and fixed it before the end. 4 steps and 112k    │
+│ tokens went into broken code first.                                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-Probes (4, confidence 99.7%): 0:pass×3  12:fail×3  6:pass×4  8:fail×4
 ```
+
+```
+$ uv run agentbisect run --trace runs/demo/humanize-planted-break
+╭────────────────────────────────── Verdict ───────────────────────────────────╮
+│ Step 8 (shell: python -m pytest -q --doctest-modules src/humanize/lists.py)  │
+│ broke 3 tests: test_naturalsize[test_args1-1.0 kB],                          │
+│ test_naturalsize[test_args2-1.0 kB], test_naturalsize[test_args56-1.0K].     │
+│ This was the agent's last step, so it had no chance to see the failure. The  │
+│ run ended with the tests broken.                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Probes, same for all 3 tests (4, confidence 99.7%): 0:pass×3  8:fail×6  5:pass
+6:pass×4
+```
+
+In both runs we planted a known bug between the agent's steps, to check that bisect finds it. The verdict names the agent step whose snapshot first contains the bug, so the step label shows that step's own command, not the planted edit. Bisect named the planted step in both runs.
 
 The verdict comes from running tests. No language model decides pass or fail. A model writes only an optional short note, always labelled "AI explanation".
 
@@ -39,20 +56,19 @@ uv run agentbisect record --repo https://github.com/<you>/<project> \
 
 ## Quickstart with no API key
 
-Try the tool on a synthetic run first. It needs no API key and no agent.
+The repo ships real recorded runs in `runs/demo/`. You need no API key and no agent. You need [uv](https://docs.astral.sh/uv/) and git.
 
 ```bash
-git clone <this repo> && cd <this repo>
+git clone https://github.com/akshatsi/Breaking-Point && cd Breaking-Point
 uv sync
-uv run python -m agentbisect.synthetic make --out runs/try --steps 30 --break-at 9 --observe-at 21
-uv run agentbisect run    --trace runs/try --check "python -m pytest -q tests/test_calc.py::test_add"
-uv run agentbisect report --trace runs/try        # writes runs/try/report.html
+uv run agentbisect run    --trace runs/demo/caught-and-fixed          # prints the verdict above
+uv run agentbisect report --trace runs/demo/humanize-planted-break    # writes runs/demo/humanize-planted-break/report.html
+uv run agentbisect study  --runs runs/demo                            # statistics over all 6 counted runs
 ```
 
-Open `runs/try/report.html`. It is one file and works offline.
+`report` writes `report.html` inside the trace folder and prints a `file://` link. It is one file and opens offline. Each demo folder already holds a prebuilt `report.html`, so you can open it without running anything. `study` also writes `runs/demo/study/study.html`, `study.json` and `RESULTS.draft.md`.
 
-Real recorded runs go in `runs/demo/` (added with the study). Run the same way:
-`uv run agentbisect run --trace runs/demo/<id>` with no `--check`. AgentBisect then finds every test that passed at the start and fails at the end, and bisects each one.
+Run `agentbisect run --trace runs/demo/<id>` on the other folders the same way: `humanize-ordinal-fix`, and the four task runs `t01-…`, `t06-…`, `t08-…`, `t10-…`. With no `--check`, AgentBisect finds every test that passed at the start and fails at the end, and bisects each one.
 
 ## What the report shows
 
@@ -90,9 +106,25 @@ Vocabulary: **trace** (the list of steps), **snapshot** (repo state after a step
 
 ## The finding
 
-*Filled from `docs/RESULTS.md` after the study. The study adds up hand-recorded Alan Code runs of one model (DeepSeek V4.1 Flash) on this fixture library, so every claim is about that setup. It reports how many runs ended broken, the lag for each broken run, how long the agent took to see breaks it later fixed, and bisect accuracy on runs where we injected a known break.*
+Full numbers and method: [`docs/RESULTS.md`](docs/RESULTS.md) (audited by recomputing every count and interval from the run files). The setup is small. One model (DeepSeek V4.1 Flash) in Alan Code, run by hand, on a practice repo and on humanize. The plan had 19 runs; we stopped after 6 counted runs: 4 task runs and 2 planted-break runs.
 
-`agentbisect study` adds up the runs in `runs/` and writes `runs/study/study.html` (the lag chart and tables), `study.json` and `RESULTS.draft.md`. It starts no agent.
+| Metric | Value | 95% interval | n |
+|---|---|---|---|
+| Task runs that ended with a failing test | 0 of 4 | 0%–49% | 4 |
+| Planted breaks where bisect named the planted step | 2 of 2 | 34%–100% | 2 |
+| Detection lag, share that never noticed, tokens after the break | not estimable | – | 0 |
+
+The lag statistics need broken runs, and no task run ended broken. So this study does not yet answer the research question.
+
+**Simulation, not real agent runs.** On 3,000 simulated 30-step histories, bisect named the wrong step in 0% of runs with a deterministic oracle, and in 1.1% when 10% of oracle runs flip at random (2.9% at 20%, with 4.0% refused as not bisectable).
+
+**Case study 1: practice repo, planted break (`caught-and-fixed`).** We planted a bug at step 9: cancelling an order restocks 1 unit, not the ordered quantity. The agent's own `pytest` at step 13 showed the failure, a lag of 4 steps and 112,179 tokens (27% of the run). It reverted the file at step 18 and the run ended green. Caveat: the agent found the plant with `git diff`. An agent hunting its own bug has no such help, so this lag may be shorter than an organic one.
+
+**Case study 2: humanize, planted break.** We planted a bug in `src/humanize/filesize.py` at step 8, the agent's last step. Auto-oracle found 3 newly failing tests and bisect named step 8 for each. The agent had no chance to see it, so the run counts for bisect accuracy only.
+
+**What we cannot claim.** How often agents break code. How long agents take to notice in general. How many tokens they waste. Anything about other models: we ran one. Four runs with no organic break support no such number.
+
+**What we learned building it.** One real task on humanize (70 steps, run ended green, not counted in the metrics) exposed three bugs in AgentBisect, now fixed: pytest colour codes hid every result line, snapshots dropped humanize's git-ignored generated `_version.py`, and editable installs let the oracle test the agent's working copy, not the snapshot.
 
 ## Flaky tests and non-monotone histories
 
