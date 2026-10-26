@@ -182,3 +182,40 @@ The trace still has the tool calls; reasoning and tokens stay empty. Check `plug
 Checked against OpenCode 1.19.3's strings, never against a live Alan run: the hook input shapes,
 the part and message event shapes, and that bash reports `metadata.exit`. If the exit code is
 missing, `exit_code` is `None` and the observed-step rule still accepts it.
+
+---
+
+# Your own project (bring your own repo)
+
+`prepare_repo_run(origin, prompt, runs_dir, ...)` in `agentbisect.hooks.opencode` sets up an Alan
+Code run on a Python project of yours. `origin` is a local directory or a git URL (`https://` or
+`file://`; `ref` picks a branch or tag).
+
+* A local directory is copied to `runs/<id>/workdir`, minus `.git`, `.venv`, `venv`,
+  `__pycache__`, `.pytest_cache`, `.tox`, `node_modules`, `.opencode`, `build`, `dist` and
+  `*.egg-info`. A URL is cloned with `--depth 1` and its `.git` is dropped. Your original is only
+  read, never changed. The workdir then gets a fresh local git repo and a shadow repo, as for tasks.
+* The dependencies go into `runs/<id>/venv`, outside the workdir, so snapshots never include them.
+  The venv python is saved as `meta.python`, and the oracle runs your tests with it. The log of
+  every install command is `runs/<id>/setup.log`. If the install fails, the run folder stays so you
+  can read that log.
+* `PROMPT.txt` is your prompt plus a line that names the venv python and the test command,
+  because Alan's shell has no `python` or `pytest`.
+
+What gets installed (`agentbisect/workspace.py`, `uv pip install --python <venv python> ...`):
+
+| Project has | Command |
+|---|---|
+| `requirements*.txt`, `requirements/test*.txt` (names containing `doc` are skipped) | one command, `-r <file>` for each |
+| `pyproject.toml` with `[project]` | `<workdir>[test,tests,testing,dev]` (only the extras it defines), a normal install, not editable |
+| `[dependency-groups]` `test`, `tests`, `dev` | `--group <workdir>/pyproject.toml:<name>`, in the same command |
+| `setup.py` or `setup.cfg`, no pyproject | `<workdir>` |
+| anything | `pytest`, if the venv cannot import it |
+
+If building the project itself fails, setup retries with only its declared dependencies and
+test extras. The scratch tree comes first on `PYTHONPATH` when the oracle runs, so the installed
+copy of your project never shadows the snapshot under test.
+
+**Security: installing a repo's dependencies runs its build code (`setup.py`, build backends,
+sdist builds). Use this mode only on repos you trust.** Copying or cloning runs nothing from the
+repo, and a clone only accepts `https://` and `file://` URLs.
