@@ -239,3 +239,18 @@ def test_whole_suite_check_matches_verbose_failure_line():
     m = SignalMatcher("python -m pytest -q", [])
     assert m._line_matches("tests/test_x.py::test_f FAILED                [ 50%]")
     assert not m._line_matches("tests/test_x.py::test_f PASSED                [ 50%]")
+
+
+def test_colored_pytest_output_is_parsed():
+    from agentbisect.analyze import SignalMatcher, strip_ansi
+    from agentbisect.bisect import parse_outcomes
+
+    colored = "\x1b[32mPASSED\x1b[0m tests/t.py::\x1b[1mtest_a\x1b[0m\n\x1b[31mFAILED\x1b[0m tests/t.py::test_b - x\n"
+    assert strip_ansi("\x1b[32m\x1b[1m746 passed\x1b[0m") == "746 passed"
+    assert parse_outcomes(colored) == {
+        "tests/t.py::test_a": "PASSED",
+        "tests/t.py::test_b": "FAILED",
+    }
+    assert SignalMatcher("python -m pytest -q tests/t.py::test_b", [])._line_matches(
+        strip_ansi(colored.splitlines()[1])
+    )

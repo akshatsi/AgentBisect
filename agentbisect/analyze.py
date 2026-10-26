@@ -18,6 +18,14 @@ from pathlib import Path
 from agentbisect import snapshot
 from agentbisect.models import Analysis, BisectResult, BisectStatus, Step, ToolKind, Trace
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove terminal color codes. Projects that set ``--color=yes`` wrap every result line."""
+    return _ANSI.sub("", text)
+
+
 SIGNAL_MAX_CHARS = 200
 
 _PARAM_SUFFIX = re.compile(r"\[.*\]$")
@@ -137,7 +145,7 @@ class SignalMatcher:
             return None
         if step.exit_code == 0:  # None (unknown) is allowed
             return None
-        for line in step.output.splitlines():
+        for line in strip_ansi(step.output).splitlines():
             if self._line_matches(line):
                 return line.strip()[:SIGNAL_MAX_CHARS]
         return None

@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agentbisect import snapshot, stats
-from agentbisect.analyze import SignalMatcher, analyze
+from agentbisect.analyze import SignalMatcher, analyze, strip_ansi
 from agentbisect.models import (
     BisectResult,
     BisectStatus,
@@ -353,7 +353,7 @@ def parse_outcomes(output: str) -> dict[str, str]:
     A collection error names a file, not a test, so its key has no ``::``.
     """
     outcomes: dict[str, str] = {}
-    for line in output.splitlines():
+    for line in strip_ansi(output).splitlines():
         m = _OUTCOME_LINE.match(line.rstrip())
         if m:
             status, rest = m.groups()
