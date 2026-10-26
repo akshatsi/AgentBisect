@@ -89,6 +89,10 @@ def collect(runs_dir: Path, *, rebisect: bool = False, timeout_s: float = 120.0)
     cache_dir = runs_dir / STUDY_DIRNAME / "cache"
     for name, run_dir, trace in kept:
         report = _bisect_report(trace, run_dir, rebisect, timeout_s)
+        fault = _step0_fault(report)
+        if fault is not None:
+            summary.excluded[name] = f"suite cannot run at step 0 (environment fault): {fault}"
+            continue
         summary.rows.extend(_rows(name, trace, report))
         summary.episodes.extend(
             _cached_episodes(name, trace, run_dir, cache_dir, rebisect, timeout_s)
@@ -152,6 +156,27 @@ def _bisect_report(trace: Trace, run_dir: Path, rebisect: bool, timeout_s: float
     report = bisect_run(trace, run_dir, None, timeout_s)
     path.write_text(report.model_dump_json(indent=2))  # exactly what `agentbisect run` writes
     return report
+
+
+#: Reasons from ``bisect`` that mean the whole suite could not run on the base snapshot.
+_STEP0_PREFIXES = ("full suite could not run at step 0", "oracle error at step 0")
+
+
+def _step0_fault(report: RunReport) -> str | None:
+    """The reason if the whole suite could not run at step 0 (METHODS §8.4), else None.
+
+    That is a problem with the environment, not the agent, so the run is not study data. A suite
+    that fails to run only at the final step is the agent's doing and stays in as broken.
+    """
+    for c in report.culprits:
+        reason = c.bisect.reason or ""
+        if (
+            c.check == SUITE_CMD
+            and c.bisect.status is BisectStatus.NOT_BISECTABLE
+            and reason.startswith(_STEP0_PREFIXES)
+        ):
+            return reason
+    return None
 
 
 def _rows(name: str, trace: Trace, report: RunReport) -> list[StudyRow]:
@@ -363,11 +388,13 @@ def find_episodes(trace: Trace, run_dir: Path, timeout_s: float = 120.0) -> list
 
     For every test that passes at step 0 and fails in an agent pytest run at step ``k`` (see
     ``_episode_starts``), bisect that test over steps ``0..k`` and return ``lag = k - t_err`` and
-    the tokens of steps ``t_err+1..k``. Episodes whose decisive step is the injected sabotage step
-    are kept with a ``reason`` and no lag: the agent did not make that break. The suite runs at
-    step 0 only if some pytest step could show a failure.
+    the tokens of steps ``t_err+1..k``. A sabotage run contributes no episodes (METHODS §8.4): the
+    injected break changes what the agent does afterwards. The suite runs at step 0 only if some
+    pytest step could show a failure.
     """
     run_dir = Path(run_dir).resolve()
+    if trace.meta.sabotage_step is not None:
+        return []
     if not any(_could_show_failure(s) for s in trace.steps):
         return []
     outcomes, _problem = suite_outcomes(run_dir, trace.meta.base_snapshot, timeout_s)
@@ -376,11 +403,7 @@ def find_episodes(trace: Trace, run_dir: Path, timeout_s: float = 120.0) -> list
         return []
     episodes = []
     for start in _episode_starts(trace, nodes):
-        episode = _bisect_episode(trace, run_dir, start, timeout_s)
-        if episode.t_err is not None and episode.t_err == trace.meta.sabotage_step:
-            episode.reason = "break injected by the sabotage task, not made by the agent"
-            episode.lag = episode.wasted_tokens = None
-        episodes.append(episode)
+        episodes.append(_bisect_episode(trace, run_dir, start, timeout_s))
     episodes.sort(key=lambda e: (e.seen_at, e.check))
     return episodes
 
@@ -467,6 +490,16 @@ def summarize(summary: StudySummary) -> StudySummary:
             "runs where the agent never saw the failure / bisectable broken runs",
         )
     )
+    metrics.append(
+        _proportion(
+            "Noticed at once (lag 0)",
+            sum(1 for r in primary if r.lag == 0),
+            len(primary),
+            "Wilson 95%",
+            "bisectable broken runs where the failing step itself showed the failure "
+            "(1 - S(0), METHODS §5.2)",
+        )
+    )
     metrics.append(_km_metric(primary))
     metrics.extend(_wasted_metrics(primary))
 
@@ -484,7 +517,7 @@ def summarize(summary: StudySummary) -> StudySummary:
             "at the end (not bisectable counts as wrong)",
         )
     )
-    metrics.extend(_episode_metrics(summary.episodes))
+    metrics.extend(_episode_metrics([e for e in summary.episodes if e.run_id in task_runs]))
     summary.metrics = metrics
     summary.design = summary.design or DESIGN
     return summary

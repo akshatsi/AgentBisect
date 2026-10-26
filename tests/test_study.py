@@ -16,8 +16,13 @@ from pathlib import Path
 import pytest
 
 from agentbisect import stats
+from agentbisect.bisect import SUITE_CMD
 from agentbisect.models import (
+    BisectResult,
+    BisectStatus,
+    CulpritReport,
     RepairEpisode,
+    RunReport,
     StudyRow,
     StudySummary,
     ToolKind,
@@ -328,15 +333,68 @@ def test_unbisectable_episode_keeps_its_reason(tmp_path: Path) -> None:
     assert ep.reason and "does not fail" in ep.reason
 
 
-def test_sabotage_episode_is_not_the_agents_break(tmp_path: Path) -> None:
+def test_sabotage_run_contributes_no_episodes(tmp_path: Path) -> None:
     def seen(trace: Trace) -> None:
         trace.meta.sabotage_step = 3
         as_pytest_step(trace, 5, fails_with=-1)
 
     run = make_run(tmp_path, "s03-flash", task="s03", n_steps=8, break_at=3, mutate=seen)
-    (ep,) = find_episodes(Trace.load(run), run)
-    assert ep.t_err == 3 and ep.lag is None and ep.wasted_tokens is None
-    assert ep.reason and "sabotage" in ep.reason
+    assert find_episodes(Trace.load(run), run) == []
+
+
+def test_episodes_of_sabotage_runs_are_not_counted() -> None:
+    eps = [
+        RepairEpisode(run_id="t1", check="c", seen_at=5, t_err=3, lag=2),
+        RepairEpisode(run_id="s1", check="c", seen_at=5, t_err=2, lag=3),
+    ]
+    rows = [
+        StudyRow(
+            run_id="t1",
+            task_id="t1",
+            model="flash",
+            n_steps=9,
+            final_failed=False,
+            bisectable=False,
+        ),
+        StudyRow(
+            run_id="s1",
+            task_id="s1",
+            model="flash",
+            sabotage_step=2,
+            n_steps=9,
+            final_failed=True,
+            bisectable=True,
+            check="c",
+            t_err=2,
+            sabotage_correct=True,
+        ),
+    ]
+    s = summarize(StudySummary(rows=rows, episodes=eps))
+    assert metric(s, "Repaired-break episodes").value == 1
+    assert metric(s, "Repaired-break lag, median (steps)").value == 2.0
+
+
+def test_suite_that_cannot_run_at_step_0_excludes_the_run(tmp_path: Path) -> None:
+    def report(reason: str) -> RunReport:
+        failed = BisectResult(check=SUITE_CMD, status=BisectStatus.NOT_BISECTABLE, reason=reason)
+        return RunReport(
+            run_id="r",
+            checks=[SUITE_CMD],
+            culprits=[CulpritReport(run_id="r", check=SUITE_CMD, bisect=failed)],
+            auto_oracle=True,
+        )
+
+    step0 = report("full suite could not run at step 0: check timed out after 120s")
+    stepn = report("full suite could not run at the final step 3: check timed out after 120s")
+    for name, rep in (("t01-flash-env", step0), ("t01-flash-hang", stepn)):
+        run = make_run(tmp_path, name, task="t01", n_steps=3, break_at=2)
+        (run / "bisect.json").write_text(rep.model_dump_json())
+    out = collect(tmp_path)
+    assert "suite cannot run at step 0" in out.excluded["t01-flash-env"]
+    assert rows_of(out, "t01-flash-env") == []
+    (row,) = rows_of(out, "t01-flash-hang")  # only at step n: the agent broke it
+    assert (row.final_failed, row.bisectable) == (True, False)
+    assert "t01-flash-hang" not in out.excluded
 
 
 # --------------------------------------------------------------------------- helpers
@@ -403,6 +461,10 @@ def test_metrics_match_hand_computation(summary: StudySummary) -> None:
     cens = metric(s, "Censoring rate of broken runs")  # only B is censored
     assert (cens.value, cens.n) == (1 / 3, 3)
     assert (cens.ci_low, cens.ci_high) == stats.wilson_interval(1, 3)
+
+    once = metric(s, "Noticed at once (lag 0)")  # lags 3, censored, 1: nobody at lag 0
+    assert (once.value, once.n) == (0.0, 3)
+    assert (once.ci_low, once.ci_high) == stats.wilson_interval(0, 3)
 
     km = metric(s, "Detection lag, Kaplan-Meier median (steps)")
     assert km.value is None and km.n == 3 and "needs at least 6" in (km.note or "")
