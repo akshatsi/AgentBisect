@@ -270,6 +270,10 @@ class RunReport(BaseModel):
     checks: list[str] = Field(description="Oracle commands bisected (auto-oracle may yield many).")
     culprits: list[CulpritReport] = Field(default_factory=list)
     auto_oracle: bool = False
+    repaired: list[RepairEpisode] = Field(
+        default_factory=list,
+        description="Breaks the agent saw and fixed before the end (METHODS §8.4).",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -371,3 +375,6 @@ class StudySummary(BaseModel):
     metrics: list[Metric] = Field(default_factory=list)
     design: str = Field(default="", description="Which METHODS §8 variant, in one line.")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+RunReport.model_rebuild()
