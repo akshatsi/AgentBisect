@@ -130,6 +130,12 @@ def _known_trees(run_dir: Path) -> dict[str, str]:
     return known
 
 
+def tree_map(run_dir: Path) -> dict[str, str]:
+    """Map every snapshot SHA in the shadow repo to its tree hash (one git call)."""
+    out = _git_text(Path(run_dir), "log", "--all", "--format=%H %T")
+    return {sha: tree for sha, _, tree in (line.partition(" ") for line in out.splitlines())}
+
+
 def _commit_tree(run_dir: Path, workdir: Path, message: str, *, dedup: bool) -> tuple[str, str]:
     tree = _write_tree(run_dir, workdir)
     if dedup:

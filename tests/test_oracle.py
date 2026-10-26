@@ -19,7 +19,7 @@ def _run(code: int | None, timed_out: bool = False) -> OracleRun:
     [
         (0, False, Verdict.PASS),
         (1, False, Verdict.FAIL),
-        (2, False, Verdict.ERROR),
+        (2, False, Verdict.FAIL),
         (3, False, Verdict.ERROR),
         (4, False, Verdict.ERROR),
         (5, False, Verdict.ERROR),
@@ -83,6 +83,7 @@ def test_pytest_no_tests_is_error(run_dir: tuple[Path, str, str]) -> None:
     result, _ = Oracle(run, OracleConfig(check=check, timeout_s=60)).evaluate(good, 0)
     assert result.runs[0].exit_code == 5
     assert result.verdict is Verdict.ERROR
+    assert result.n_runs == 2  # ERROR_RUNS_LIMIT
 
 
 def test_output_tail_is_bounded(tmp_path: Path) -> None:
