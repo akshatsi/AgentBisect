@@ -278,6 +278,175 @@ def test_record_harness_prints_model_and_cap_then_records(
     assert "Next: agentbisect run" in result.output
 
 
+# --------------------------------------------------------------------------- record --repo
+
+
+class FakeSetupError(Exception):
+    def __init__(self, message: str, log_path: Path) -> None:
+        super().__init__(f"{message} (see {log_path})")
+        self.log_path = log_path
+
+
+def install_fake_repo_flow(monkeypatch: pytest.MonkeyPatch, *, fail: bool = False) -> list[dict]:
+    """Stand in for prepare_repo_run (and SetupError) so no clone or install happens."""
+    calls: list[dict] = []
+    try:
+        from agentbisect.workspace import SetupError
+    except ImportError:
+        workspace = types.ModuleType("agentbisect.workspace")
+        workspace.SetupError = FakeSetupError  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "agentbisect.workspace", workspace)
+        SetupError = FakeSetupError  # noqa: N806
+
+    mod = types.ModuleType("agentbisect.hooks.opencode")
+
+    def prepare_repo_run(  # noqa: ANN202
+        origin, prompt, runs_dir, *, model_alias=None, run_id=None, ref=None, setup=True
+    ):
+        calls.append(
+            dict(
+                origin=origin,
+                prompt=prompt,
+                model_alias=model_alias,
+                run_id=run_id,
+                ref=ref,
+                setup=setup,
+            )
+        )
+        run = Path(runs_dir) / (run_id or "repo-run")
+        (run / "workdir").mkdir(parents=True)
+        if fail:
+            raise SetupError("pip install failed", run / "setup.log")
+        meta = TraceMeta(
+            run_id=run.name,
+            source=TraceSource.ALAN_CODE,
+            workdir=run / "workdir",
+            base_snapshot="0" * 40,
+            repo_origin=origin,
+        )
+        (run / "meta.json").write_text(meta.model_dump_json())
+        (run / "PROMPT.txt").write_text(prompt)
+        return run
+
+    mod.prepare_repo_run = prepare_repo_run  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "agentbisect.hooks.opencode", mod)
+    return calls
+
+
+def test_record_needs_exactly_one_of_task_and_repo(tmp_path: Path) -> None:
+    neither = invoke("record", "--runs-dir", str(tmp_path))
+    assert neither.exit_code == 2
+    assert "exactly one of --task and --repo" in neither.output
+    both = invoke(
+        "record",
+        "--task",
+        str(PROJECT / "tasks" / "t01.yaml"),
+        "--repo",
+        str(tmp_path),
+        "--prompt",
+        "x",
+    )
+    assert both.exit_code == 2
+    assert "exactly one of --task and --repo" in both.output
+
+
+def test_record_repo_needs_exactly_one_prompt(tmp_path: Path) -> None:
+    none = invoke("record", "--repo", str(tmp_path), "--runs-dir", str(tmp_path / "r"))
+    assert none.exit_code == 2
+    assert "--prompt" in none.output and "--prompt-file" in none.output
+    pfile = tmp_path / "p.txt"
+    pfile.write_text("hello")
+    both = invoke("record", "--repo", str(tmp_path), "--prompt", "x", "--prompt-file", str(pfile))
+    assert both.exit_code == 2
+    empty = invoke("record", "--repo", str(tmp_path), "--prompt", "   ")
+    assert empty.exit_code == 2 and "empty" in empty.output
+
+
+def test_record_repo_rejects_harness(tmp_path: Path) -> None:
+    result = invoke("record", "--repo", str(tmp_path), "--prompt", "x", "--harness")
+    assert result.exit_code == 2
+    assert "--harness works with --task only" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_record_task_rejects_repo_only_flags() -> None:
+    task = str(PROJECT / "tasks" / "t01.yaml")
+    for extra in (["--prompt", "x"], ["--ref", "main"], ["--no-setup"]):
+        result = invoke("record", "--task", task, *extra)
+        assert result.exit_code == 2, extra
+        assert "works with --repo only" in result.output
+
+
+def test_record_repo_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = install_fake_repo_flow(monkeypatch)
+    pfile = tmp_path / "prompt.txt"
+    pfile.write_text("Add a retry to fetch().\n")
+    result = invoke(
+        "record",
+        "--repo",
+        "https://github.com/me/proj",
+        "--prompt-file",
+        str(pfile),
+        "--ref",
+        "dev",
+        "--no-setup",
+        "--model",
+        "flash",
+        "--runs-dir",
+        str(tmp_path / "runs"),
+        "--run-id",
+        "r1",
+    )
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        dict(
+            origin="https://github.com/me/proj",
+            prompt="Add a retry to fetch().\n",
+            model_alias="flash",
+            run_id="r1",
+            ref="dev",
+            setup=False,
+        )
+    ]
+    assert "1. Open the Alan app" in result.output
+    assert str(tmp_path / "runs" / "r1" / "workdir") in result.output
+    assert "PROMPT.txt" in result.output
+    assert "agentbisect run --trace" in result.output
+    assert "original repo is not modified" in result.output
+    assert "Add a retry to fetch()." in result.output
+
+
+def test_record_repo_defaults_run_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = install_fake_repo_flow(monkeypatch)
+    result = invoke(
+        "record", "--repo", str(tmp_path), "--prompt", "do it", "--runs-dir", str(tmp_path / "r")
+    )
+    assert result.exit_code == 0, result.output
+    assert calls[0]["setup"] is True and calls[0]["ref"] is None
+
+
+def test_record_repo_setup_error_prints_message_and_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_repo_flow(monkeypatch, fail=True)
+    result = invoke(
+        "record",
+        "--repo",
+        str(tmp_path),
+        "--prompt",
+        "x",
+        "--runs-dir",
+        str(tmp_path / "runs"),
+        "--run-id",
+        "bad",
+    )
+    assert result.exit_code == 1
+    assert "Setup failed" in result.output
+    assert "pip install failed" in result.output
+    assert "setup.log" in result.output
+    assert "Traceback" not in result.output
+
+
 # --------------------------------------------------------------------------- study
 
 

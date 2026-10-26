@@ -148,7 +148,8 @@ footer { color: var(--muted); font-size: 12px; margin: 20px 0 8px; }
     <h1>AgentBisect report</h1>
     <p class="sub">
       Run <code>{{ meta.run_id }}</code>
-      {% if meta.task_id %} &middot; task <code>{{ meta.task_id }}</code>{% endif %}
+      {% if meta.repo_origin %} &middot; repo <code>{{ meta.repo_origin }}</code>
+      {% elif meta.task_id %} &middot; task <code>{{ meta.task_id }}</code>{% endif %}
       {% if model_label %} &middot; model <code>{{ model_label }}</code>{% endif %}
       &middot; recorded by {{ source_label }}
     </p>

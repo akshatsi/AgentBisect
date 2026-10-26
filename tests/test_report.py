@@ -77,6 +77,18 @@ def test_header_shows_source_and_model(run_copy: Path) -> None:
     assert "<code>flash" in page
 
 
+def test_header_shows_repo_origin_instead_of_task(run_copy: Path) -> None:
+    meta = (run_copy / "meta.json").read_text()
+    assert '"repo_origin": null' in meta
+    assert "task <code>" in html_of(run_copy)
+    (run_copy / "meta.json").write_text(
+        meta.replace('"repo_origin": null', '"repo_origin": "https://github.com/me/proj"')
+    )
+    page = html_of(run_copy)
+    assert "repo <code>https://github.com/me/proj</code>" in page
+    assert "task <code>" not in page
+
+
 def test_source_labels_cover_every_source() -> None:
     from agentbisect.models import TraceSource
     from agentbisect.report.render import SOURCE_LABELS

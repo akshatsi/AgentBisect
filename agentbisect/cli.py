@@ -69,9 +69,78 @@ def _load_task(console: Console, path: Path) -> TaskSpec:
         raise _fail(console, f"Cannot read task {path}: {e}") from e
 
 
+def _model_text(model: str | None) -> str:
+    if not model:
+        return "the model you want to test"
+    text = f"alias {model}"
+    try:
+        from agentbisect.llm import find_model, load_models
+
+        entry = find_model(load_models(), model)
+        if entry is not None and entry.display_name:
+            text = f"{entry.display_name} (alias {model})"
+    except Exception:
+        pass
+    return text
+
+
+def _print_alan_code_steps(
+    console: Console, run_dir: Path, heading: str, model: str | None, *, copy_note: bool = False
+) -> None:
+    """The numbered instructions for starting a recorded Alan Code run by hand."""
+    workdir: Path | None = None
+    try:
+        workdir = TraceMeta.model_validate_json((run_dir / "meta.json").read_text()).workdir
+    except Exception:
+        workdir = None
+    prompt_file = run_dir / "PROMPT.txt"
+    folder = str(workdir) if workdir else str(run_dir / "workdir")
+    console.print(f"[bold cyan]Record with Alan Code[/bold cyan]  ({escape(heading)})")
+    console.print(f"Run folder: {escape(str(run_dir))}\n", soft_wrap=True)
+    console.print("1. Open the Alan app and start a new conversation in this folder:")
+    console.print(f"   [bold]{escape(folder)}[/bold]", soft_wrap=True)
+    console.print(f"2. Pick the model: {escape(_model_text(model))}")
+    console.print("3. Paste the prompt below (also saved in this file):")
+    console.print(f"   {escape(str(prompt_file))}", soft_wrap=True)
+    console.print("4. Let the agent work until it stops. Do not edit files yourself.")
+    console.print("5. Then run:")
+    console.print(
+        f"   [bold]agentbisect run --trace {escape(shlex.quote(str(run_dir)))}[/bold]\n",
+        soft_wrap=True,
+    )
+    if copy_note:
+        console.print(
+            "Your original repo is not modified. The agent works on a copy in the folder above.\n"
+        )
+    if prompt_file.exists():
+        console.print("[bold]Prompt[/bold]")
+        console.print(escape(prompt_file.read_text()), soft_wrap=True)
+
+
 @app.command()
 def record(
-    task: Path = typer.Option(..., "--task", help="Task YAML, e.g. tasks/t03.yaml."),
+    task: Path | None = typer.Option(
+        None, "--task", help="Task YAML, e.g. tasks/t03.yaml. Use this or --repo."
+    ),
+    repo: str | None = typer.Option(
+        None,
+        "--repo",
+        help="Your own project: a local path or git URL. The agent works on a copy. "
+        "Use this or --task.",
+    ),
+    prompt: str | None = typer.Option(None, "--prompt", help="With --repo: what to ask the agent."),
+    prompt_file: Path | None = typer.Option(
+        None, "--prompt-file", help="With --repo: read the prompt from this file."
+    ),
+    ref: str | None = typer.Option(
+        None, "--ref", help="With --repo: branch, tag or commit to start from."
+    ),
+    no_setup: bool = typer.Option(
+        False,
+        "--no-setup",
+        help="With --repo: skip installing the project's dependencies (the install runs the "
+        "project's build code).",
+    ),
     model: str | None = typer.Option(
         None, "--model", help="Model alias from tasks/models.yaml (for the pick in Alan Code)."
     ),
@@ -80,17 +149,100 @@ def record(
     harness: bool = typer.Option(
         False,
         "--harness",
-        help="Backup: run our own agent loop through the Alan API. Spends credits.",
+        help="Backup, with --task only: run our own agent loop through the Alan API. "
+        "Spends credits.",
     ),
 ) -> None:
-    """Set up a recorded run. Default: Alan Code (OpenCode in the Alan app), which you start by hand."""
+    """Set up a recorded run, from a task (--task) or your own project (--repo).
+
+    Default: Alan Code (OpenCode in the Alan app), which you start by hand.
+    """
     console = _console()
-    spec = _load_task(console, task)
+    if (task is None) == (repo is None):
+        raise _fail(console, "Give exactly one of --task and --repo.")
     runs_dir = runs_dir.resolve()
+    if repo is not None:
+        if harness:
+            raise _fail(console, "--harness works with --task only, not with --repo.")
+        text = _read_prompt(console, prompt, prompt_file)
+        _record_repo(console, repo, text, runs_dir, model, run_id, ref, not no_setup)
+        return
+    assert task is not None
+    for flag, value in (
+        ("--prompt", prompt),
+        ("--prompt-file", prompt_file),
+        ("--ref", ref),
+    ):
+        if value is not None:
+            raise _fail(console, f"{flag} works with --repo only.")
+    if no_setup:
+        raise _fail(console, "--no-setup works with --repo only.")
+    spec = _load_task(console, task)
     if harness:
         _record_with_harness(console, spec, model, runs_dir, run_id)
     else:
         _record_with_alan_code(console, spec, model, runs_dir, run_id)
+
+
+def _read_prompt(console: Console, prompt: str | None, prompt_file: Path | None) -> str:
+    if (prompt is None) == (prompt_file is None):
+        raise _fail(console, "With --repo, give exactly one of --prompt and --prompt-file.")
+    if prompt_file is not None:
+        try:
+            prompt = prompt_file.read_text()
+        except OSError as e:
+            raise _fail(console, f"Cannot read the prompt file {prompt_file}: {e}") from e
+    assert prompt is not None
+    if not prompt.strip():
+        raise _fail(console, "The prompt is empty.")
+    return prompt
+
+
+def _setup_error_class() -> type[Exception]:
+    try:
+        from agentbisect.workspace import SetupError
+
+        return SetupError
+    except ImportError:  # workspace.py not landed yet: nothing can raise it
+        return type("SetupError", (Exception,), {})
+
+
+def _record_repo(
+    console: Console,
+    repo: str,
+    prompt: str,
+    runs_dir: Path,
+    model: str | None,
+    run_id: str | None,
+    ref: str | None,
+    setup: bool,
+) -> None:
+    try:
+        from agentbisect.hooks.opencode import prepare_repo_run
+    except ImportError as e:
+        raise _fail(console, f"Recording your own repo is not available yet ({e}).", 1) from e
+
+    setup_error = _setup_error_class()
+    what = "Copying the repo and installing its dependencies" if setup else "Copying the repo"
+    try:
+        with console.status(f"{what}. This can take a minute."):
+            run_dir = Path(
+                prepare_repo_run(
+                    repo, prompt, runs_dir, model_alias=model, run_id=run_id, ref=ref, setup=setup
+                )
+            )
+    except setup_error as e:
+        console.print(f"[bold red]Setup failed:[/bold red] {escape(str(e))}")
+        log = getattr(e, "log_path", None)
+        if log is None and run_id:
+            log = runs_dir / run_id / "setup.log"
+        if log is not None and str(log) not in str(e):
+            console.print(f"Log: {escape(str(log))}", soft_wrap=True)
+        raise typer.Exit(1) from e
+    except Exception as e:
+        raise _fail(console, f"Cannot prepare the run: {e}", 1) from e
+
+    _print_alan_code_steps(console, run_dir, f"repo {repo}", model, copy_note=True)
 
 
 def _record_with_alan_code(
@@ -110,43 +262,7 @@ def _record_with_alan_code(
     except Exception as e:
         raise _fail(console, f"Cannot prepare the run: {e}", 1) from e
 
-    workdir: Path | None = None
-    try:
-        workdir = TraceMeta.model_validate_json((run_dir / "meta.json").read_text()).workdir
-    except Exception:
-        workdir = None
-    prompt_file = run_dir / "PROMPT.txt"
-    model_text = "the model you want to test"
-    if model:
-        model_text = f"alias {model}"
-        try:
-            from agentbisect.llm import find_model, load_models
-
-            entry = find_model(load_models(), model)
-            if entry is not None and entry.display_name:
-                model_text = f"{entry.display_name} (alias {model})"
-        except Exception:
-            pass
-
-    folder = str(workdir) if workdir else str(run_dir / "workdir")
-    console.print(
-        f"[bold cyan]Record with Alan Code[/bold cyan]  (task {escape(spec.id)}: {escape(spec.title)})"
-    )
-    console.print(f"Run folder: {escape(str(run_dir))}\n", soft_wrap=True)
-    console.print("1. Open the Alan app and start a new conversation in this folder:")
-    console.print(f"   [bold]{escape(folder)}[/bold]", soft_wrap=True)
-    console.print(f"2. Pick the model: {escape(model_text)}")
-    console.print("3. Paste the prompt below (also saved in this file):")
-    console.print(f"   {escape(str(prompt_file))}", soft_wrap=True)
-    console.print("4. Let the agent work until it stops. Do not edit files yourself.")
-    console.print("5. Then run:")
-    console.print(
-        f"   [bold]agentbisect run --trace {escape(shlex.quote(str(run_dir)))}[/bold]\n",
-        soft_wrap=True,
-    )
-    if prompt_file.exists():
-        console.print("[bold]Prompt[/bold]")
-        console.print(escape(prompt_file.read_text()), soft_wrap=True)
+    _print_alan_code_steps(console, run_dir, f"task {spec.id}: {spec.title}", model)
 
 
 def _record_with_harness(
