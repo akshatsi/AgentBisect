@@ -250,6 +250,10 @@ def run(
 
     console = _console()
     trace = trace.resolve()  # the oracle runs in scratch dirs, so it needs an absolute path
+    if (trace / "events.jsonl").exists():  # Alan Code run: finalize in case the agent never idled
+        from agentbisect.hooks.opencode import finalize_run
+
+        finalize_run(trace)
     loaded = _load_trace(console, trace)
     if loaded.n == 0:
         raise _fail(console, "The trace has no steps.")

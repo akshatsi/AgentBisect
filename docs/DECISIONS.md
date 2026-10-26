@@ -20,3 +20,7 @@ One line per non-obvious choice: date, decision, reason.
 - 2026-10-26 · Because runs are started by hand and billed to the human's Alan account, the study shrinks to about 16–20 runs (design in METHODS §8). The `ALAN_SPEND_CAP_USD` cap applies only to the backup harness.
 - 2026-10-26 · Snapshots also exclude `.opencode/` (the Alan Code recorder plugin lives at `<workdir>/.opencode/plugin/agentbisect.js`), so it never shows in snapshots, diffs, tree dedup or the oracle scratch tree.
 - 2026-10-26 · `bisect`, `bisect_run`, `analyze` and `Oracle` resolve `run_dir` (and the scratch dir) to absolute paths on entry: a relative path was resolved a second time inside the check's shell, so pytest looked in the wrong directory.
+- 2026-10-26 · Claude Code hook registers `PostToolUseFailure` too: a Bash command with non-zero exit (a failing pytest) fires only that event, so without it no failure output is recorded. Base snapshot comes from `SessionStart`.
+- 2026-10-26 · Tokens of one model request go to its first tool call only, in every recorder. `tokens_in` includes cache read and write.
+- 2026-10-26 · Alan Code runs fall back to rebuilding steps from `events.jsonl` with one final snapshot if `tool.execute.after` never fires. Such runs are smoke tests, not study data. `agentbisect run` finalizes an Alan Code run first, in case the agent never went idle.
+- 2026-10-26 · `record()` re-raises `SpendCapExceeded` after saving the partial trace, so a batch stops when the cap is hit.
