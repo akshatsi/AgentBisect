@@ -381,7 +381,7 @@ def _step_lines(run_dir: Path) -> list[str]:
     path = run_dir / "trace.jsonl"
     if not path.exists():
         return []
-    return [x for x in path.read_text().splitlines() if x.strip()]
+    return [x for x in path.read_text().split("\n") if x.strip()]
 
 
 def record_step(run_dir: Path, payload: Mapping[str, Any]) -> Step | None:
@@ -437,7 +437,7 @@ def read_events(run_dir: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     out = []
-    for raw in path.read_text(errors="replace").splitlines():
+    for raw in path.read_text(errors="replace").split("\n"):
         try:
             obj = json.loads(raw)
         except ValueError:

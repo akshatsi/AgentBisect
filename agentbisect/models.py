@@ -130,7 +130,7 @@ class Trace(BaseModel):
     @classmethod
     def load(cls, run_dir: Path) -> Trace:
         meta = TraceMeta.model_validate_json((run_dir / "meta.json").read_text())
-        lines = (run_dir / "trace.jsonl").read_text().splitlines()
+        lines = (run_dir / "trace.jsonl").read_text().split("\n")
         steps = [Step.model_validate_json(line) for line in lines if line.strip()]
         return cls(meta=meta, steps=steps)
 
