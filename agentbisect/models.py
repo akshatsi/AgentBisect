@@ -72,6 +72,7 @@ class Step(BaseModel):
 class TraceSource(StrEnum):
     ALAN = "alan"
     CLAUDE_CODE = "claude_code"
+    ALAN_CODE = "alan_code"  # OpenCode inside the Alan app, recorded by a plugin
     SYNTHETIC = "synthetic"
 
 
