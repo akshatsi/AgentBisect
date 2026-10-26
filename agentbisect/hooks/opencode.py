@@ -47,6 +47,7 @@ import contextlib
 import fcntl
 import json
 import re
+import shlex
 import shutil
 import sys
 import traceback
@@ -183,6 +184,16 @@ def render_plugin(run_dir: Path, python: str | None = None) -> str:
     return text
 
 
+def agent_prompt(prompt: str) -> str:
+    """The task prompt with ``python`` pinned to this venv.
+
+    Alan Code's shell has no ``python`` and its ``python3`` lacks pytest, so an agent told to run
+    ``python -m pytest`` could never see a test fail.
+    """
+    python = shlex.quote(sys.executable)
+    return prompt.rstrip().replace("`python -m pytest", f"`{python} -m pytest") + "\n"
+
+
 def prepare_opencode_run(
     task: TaskSpec,
     runs_dir: Path,
@@ -219,7 +230,7 @@ def prepare_opencode_run(
     )
     Trace(meta=meta).save(run_dir)
     (run_dir / "task.json").write_text(task.model_dump_json(indent=2))
-    (run_dir / "PROMPT.txt").write_text(task.prompt.rstrip() + "\n")
+    (run_dir / "PROMPT.txt").write_text(agent_prompt(task.prompt))
     plugin = workdir / PLUGIN_RELPATH
     plugin.parent.mkdir(parents=True, exist_ok=True)
     plugin.write_text(render_plugin(run_dir))
