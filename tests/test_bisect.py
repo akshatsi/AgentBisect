@@ -10,6 +10,8 @@ from typer.testing import CliRunner
 
 from agentbisect import snapshot, stats
 from agentbisect.bisect import (
+    CAP_NOTE,
+    MAX_AUTO_CULPRITS,
     SUITE_CMD,
     bisect,
     bisect_run,
@@ -603,3 +605,41 @@ def test_relative_run_dir_works(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     suite, factory = _fake_world(trace, {TESTS[0]: 3})
     auto = bisect_run(trace, run, None, suite_runner=suite, executor_factory=factory)
     assert [c.bisect.decisive_step for c in auto.culprits] == [3]
+
+
+# --------------------------------------------------------------------------- bring-your-own-repo
+
+
+def test_auto_oracle_caps_the_number_of_bisected_tests(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=6, break_at=2)
+    nodes = [f"tests/t.py::test_{i:02d}" for i in range(MAX_AUTO_CULPRITS + 3)]
+    index = {trace.meta.base_snapshot: 0} | {s.snapshot: s.index for s in trace.steps}
+
+    def suite(sha: str) -> tuple[OracleRun, str]:
+        failed = index[sha] >= 3
+        out = _outcomes({n: "FAILED" if failed else "PASSED" for n in reversed(nodes)})
+        return run_of(1 if failed else 0), out
+
+    def factory(check: str):
+        return lambda sha: run_of(1 if index[sha] >= 3 else 0)
+
+    report = bisect_run(trace, run, None, suite_runner=suite, executor_factory=factory)
+    assert len(report.culprits) == MAX_AUTO_CULPRITS
+    assert [c.check for c in report.culprits] == [f"{SUITE_CMD} {n}" for n in nodes[:10]]
+    assert report.checks[:10] == [c.check for c in report.culprits]
+    assert report.checks[10:] == [f"{SUITE_CMD} {n}{CAP_NOTE}" for n in nodes[10:]]
+
+
+def test_missing_project_venv_is_not_bisectable(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=4, break_at=2)
+    gone = tmp_path / "venv" / "bin" / "python"
+    trace.meta.python = gone
+    for check in (None, CHECK):
+        report = bisect_run(trace, run, check)
+        (culprit,) = report.culprits
+        assert culprit.bisect.status is BisectStatus.NOT_BISECTABLE
+        assert culprit.bisect.reason == f"project venv missing at {gone}"
+    result = bisect(trace, run, OracleConfig(check=CHECK))
+    assert result.reason == f"project venv missing at {gone}"

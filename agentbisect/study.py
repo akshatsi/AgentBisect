@@ -397,7 +397,9 @@ def find_episodes(trace: Trace, run_dir: Path, timeout_s: float = 120.0) -> list
         return []
     if not any(_could_show_failure(s) for s in trace.steps):
         return []
-    outcomes, _problem = suite_outcomes(run_dir, trace.meta.base_snapshot, timeout_s)
+    outcomes, _problem = suite_outcomes(
+        run_dir, trace.meta.base_snapshot, timeout_s, python=trace.meta.python
+    )
     nodes = [n for n, status in (outcomes or {}).items() if status == "PASSED" and "::" in n]
     if not nodes:
         return []

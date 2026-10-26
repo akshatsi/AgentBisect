@@ -35,6 +35,7 @@ from agentbisect.oracle import (
     count_runs,
     describe_error,
     run_command,
+    venv_problem,
 )
 
 
@@ -74,7 +75,7 @@ class _Run:
         self.sha = [
             canon.setdefault(self.keys[j], trace.snapshot_at(c)) for j, c in enumerate(self.cand)
         ]
-        self.oracle = Oracle(run_dir, config, executor=executor)
+        self.oracle = Oracle(run_dir, config, executor=executor, python=trace.meta.python)
         self.order: list[int] = []  # candidate positions in the order first decided
         self.verdicts: dict[int, Verdict] = {}
 
@@ -236,10 +237,14 @@ def bisect(
     """Find the decisive step ``t_err`` for ``config.check`` on ``trace``.
 
     ``executor`` (``sha -> OracleRun``) replaces the real check; tests use it to simulate oracles.
+    The check runs with ``trace.meta.python`` when set (the project's own venv).
     """
     run_dir = Path(run_dir).resolve()
     if trace.n == 0:
         return _not_bisectable(config, "trace has no steps", None, None, 0)
+    problem = None if executor else venv_problem(trace.meta.python)
+    if problem:
+        return _not_bisectable(config, problem, None, None, 0)
     r = _Run(trace, run_dir, config, executor)
     if r.m == 0 or r.keys[0] == r.keys[r.m]:
         return _not_bisectable(
@@ -329,6 +334,11 @@ def _finish(r: _Run, policy: OraclePolicy, lo: int, hi: int) -> BisectResult:
 SUITE_CMD = "python -m pytest -q"
 _SUITE_FLAGS = "-rA --continue-on-collection-errors"
 
+#: The auto-oracle bisects at most this many newly failing tests (sorted by node ID); the rest are
+#: listed in ``RunReport.checks`` with ``CAP_NOTE`` and no culprit.
+MAX_AUTO_CULPRITS = 10
+CAP_NOTE = "  (not bisected: cap)"
+
 SuiteRunner = Callable[[str], tuple[OracleRun, str]]
 ExecutorFactory = Callable[[str], Executor]
 
@@ -375,19 +385,26 @@ def _suite_problem(run: OracleRun, where: str, timeout_s: float) -> str | None:
 
 
 def suite_outcomes(
-    run_dir: Path, sha: str, timeout_s: float, suite_runner: SuiteRunner | None = None
+    run_dir: Path,
+    sha: str,
+    timeout_s: float,
+    suite_runner: SuiteRunner | None = None,
+    python: Path | None = None,
 ) -> tuple[dict[str, str] | None, str | None]:
     """Run the whole suite once on snapshot ``sha``: ``(node ID -> PASSED/FAILED/ERROR, problem)``.
 
     ``problem`` is a reason (and the outcomes are None) when the suite could not run. The study
-    uses it to learn which tests pass at step 0.
+    uses it to learn which tests pass at step 0. ``python`` is the project's interpreter.
     """
     run_dir = Path(run_dir).resolve()
     scratch = run_dir / "scratch"
+    missing = None if suite_runner else venv_problem(python)
+    if missing:
+        return None, missing
 
     def default_runner(target: str) -> tuple[OracleRun, str]:
         snapshot.restore(run_dir, target, scratch)
-        return run_command(f"{SUITE_CMD} {_SUITE_FLAGS}", scratch, timeout_s)
+        return run_command(f"{SUITE_CMD} {_SUITE_FLAGS}", scratch, timeout_s, python)
 
     run, out = (suite_runner or default_runner)(sha)
     problem = _suite_problem(run, "the base snapshot", timeout_s)
@@ -406,10 +423,14 @@ def discover_failing_tests(
     """
     run_dir = Path(run_dir).resolve()
     scratch = run_dir / "scratch"
+    python = trace.meta.python
+    missing = None if suite_runner else venv_problem(python)
+    if missing:
+        return [], missing
 
     def default_runner(sha: str) -> tuple[OracleRun, str]:
         snapshot.restore(run_dir, sha, scratch)
-        return run_command(f"{SUITE_CMD} {_SUITE_FLAGS}", scratch, timeout_s)
+        return run_command(f"{SUITE_CMD} {_SUITE_FLAGS}", scratch, timeout_s, python)
 
     runner = suite_runner or default_runner
     run0, out0 = runner(trace.meta.base_snapshot)
@@ -452,7 +473,9 @@ def bisect_run(
     0 and step n and bisect every test that passes at 0 and fails at n, each with the check
     ``python -m pytest -q <node id>``. Each FOUND result gets its step, its diff and its detection
     lag (``analyze``). Culprits come back FOUND first, ordered by decisive step, then not
-    bisectable ones.
+    bisectable ones. Auto-oracle bisects at most ``MAX_AUTO_CULPRITS`` tests (sorted by node ID);
+    the others are named in ``checks`` with ``CAP_NOTE`` and get no culprit. A missing project
+    venv (``trace.meta.python``) gives one not-bisectable culprit.
 
     An auto-oracle run with nothing newly failing returns no culprits. If the suite itself could
     not run, it returns one not-bisectable culprit whose check is ``SUITE_CMD`` and whose reason
@@ -464,7 +487,16 @@ def bisect_run(
     run_dir = Path(run_dir).resolve()
     auto = check is None
     checks: list[str]
+    skipped: list[str] = []
     if check is not None:
+        problem = None if executor_factory else venv_problem(trace.meta.python)
+        if problem:
+            failed = BisectResult(check=check, status=BisectStatus.NOT_BISECTABLE, reason=problem)
+            return RunReport(
+                run_id=trace.meta.run_id,
+                checks=[check],
+                culprits=[culprit_report(trace, run_dir, failed)],
+            )
         checks = [check]
     else:
         nodes, problem = discover_failing_tests(trace, run_dir, timeout_s, suite_runner)
@@ -478,7 +510,10 @@ def bisect_run(
                 culprits=[culprit_report(trace, run_dir, failed)],
                 auto_oracle=True,
             )
+        nodes = sorted(nodes)
         checks = [f"{SUITE_CMD} {shlex.quote(node)}" for node in nodes]
+        skipped = [c + CAP_NOTE for c in checks[MAX_AUTO_CULPRITS:]]
+        checks = checks[:MAX_AUTO_CULPRITS]
 
     culprits = []
     for one in checks:
@@ -493,4 +528,6 @@ def bisect_run(
             c.check,
         )
     )
+    if auto:
+        checks = checks + skipped
     return RunReport(run_id=trace.meta.run_id, checks=checks, culprits=culprits, auto_oracle=auto)

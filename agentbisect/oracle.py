@@ -68,18 +68,53 @@ def _tail(data: bytes | str | None) -> str:
     return text[-TAIL_CHARS:]
 
 
-def run_command(check: str, cwd: Path, timeout_s: float) -> tuple[OracleRun, str]:
-    """Run ``check`` once with ``shell=True`` in ``cwd``. Returns the run and the full output.
+def check_env(cwd: Path, python: Path | None = None) -> dict[str, str]:
+    """Environment for one check run in ``cwd`` (the restored snapshot).
 
-    The current Python's bin dir leads PATH, so ``python`` and ``pytest`` are the venv's.
+    ``python`` is the project's interpreter (``TraceMeta.python``); its bin dir leads PATH so
+    ``python -m pytest`` resolves to the project's venv. None means the AgentBisect interpreter.
+    The code under test must come from the snapshot, never from the venv's site-packages or the
+    original workdir, so ``PYTHONPATH`` starts with ``cwd`` and ``cwd/src`` (if it exists).
     """
-    cwd = Path(cwd).resolve()  # a relative cwd would be re-resolved inside the shell
     env = dict(os.environ)
-    bin_dir = str(Path(sys.executable).parent)
-    env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+    interpreter = Path(python) if python is not None else Path(sys.executable)
+    bin_dir = Path(
+        os.path.abspath(interpreter)
+    ).parent  # do not resolve: a venv python is a symlink
+    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+    env.pop("PYTHONHOME", None)
+    if (bin_dir.parent / "pyvenv.cfg").exists():
+        env["VIRTUAL_ENV"] = str(bin_dir.parent)
+    else:
+        env.pop("VIRTUAL_ENV", None)
+    paths = [str(cwd)]
+    if (cwd / "src").is_dir():
+        paths.append(str(cwd / "src"))
+    if env.get("PYTHONPATH"):
+        paths.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(paths)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     # Keep pytest's rootdir at the scratch worktree even when runs/ sits inside another project.
     env["PYTEST_ADDOPTS"] = f"--rootdir={shlex.quote(str(cwd))} " + env.get("PYTEST_ADDOPTS", "")
+    return env
+
+
+def venv_problem(python: Path | None) -> str | None:
+    """Reason a run cannot be checked because its project venv is gone, else None."""
+    if python is not None and not Path(python).exists():
+        return f"project venv missing at {python}"
+    return None
+
+
+def run_command(
+    check: str, cwd: Path, timeout_s: float, python: Path | None = None
+) -> tuple[OracleRun, str]:
+    """Run ``check`` once with ``shell=True`` in ``cwd``. Returns the run and the full output.
+
+    See ``check_env`` for which Python runs it and where the code under test comes from.
+    """
+    cwd = Path(cwd).resolve()  # a relative cwd would be re-resolved inside the shell
+    env = check_env(cwd, python)
     start = time.monotonic()
     try:
         proc = subprocess.run(
@@ -110,9 +145,9 @@ def run_command(check: str, cwd: Path, timeout_s: float) -> tuple[OracleRun, str
     return run, proc.stdout.decode(errors="replace")
 
 
-def execute_check(check: str, cwd: Path, timeout_s: float) -> OracleRun:
+def execute_check(check: str, cwd: Path, timeout_s: float, python: Path | None = None) -> OracleRun:
     """Run ``check`` once in ``cwd``; only the tail of its output is kept."""
-    return run_command(check, cwd, timeout_s)[0]
+    return run_command(check, cwd, timeout_s, python)[0]
 
 
 def describe_error(run: OracleRun, timeout_s: float | None = None) -> str:
@@ -143,6 +178,7 @@ class Oracle:
     ``runs_for(sha)`` holds every run ever made on a snapshot. ``evaluate`` turns those runs into a
     verdict under the current policy, running more only if the policy asks for it. ``executor``
     replaces the real check (``sha -> OracleRun``); tests use it to simulate oracles quickly.
+    ``python`` is the project's interpreter (None: the AgentBisect one).
     """
 
     def __init__(
@@ -152,7 +188,9 @@ class Oracle:
         policy: OraclePolicy | None = None,
         decide: Decider | None = None,
         executor: Executor | None = None,
+        python: Path | None = None,
     ) -> None:
+        self.python = python
         self.run_dir = Path(run_dir).resolve()
         self.config = config
         self.policy = policy or fallback_policy()
@@ -184,7 +222,7 @@ class Oracle:
             run = self._executor(sha)
         else:
             self._restore(sha)
-            run = execute_check(self.config.check, self.scratch, self.config.timeout_s)
+            run = execute_check(self.config.check, self.scratch, self.config.timeout_s, self.python)
         self.runs_for(sha).append(run)
         return run
 
