@@ -385,7 +385,10 @@ so every step after the last transition sits on a broken base.
 - **Signals before `t_err`** are ignored; they belong to earlier failures (including repaired
   breaks in a non-monotone history).
 - **`t_err = n`, no chance to look.** If `t_err = n` and step n is not a shell step, the agent
-  never received a tool output after the break. The row is **no-opportunity**:
+  never received a tool output after the break. The same holds for a **planted break at
+  `t_err = n`** whatever the step's kind, because the plant is applied after step `at_step`'s
+  output was produced (in general, a planted step can never be its own observing step: search
+  for `t_obs` from `t_err + 1`). The row is **no-opportunity**:
   `censored = True`, `steps_after_err = 0`, with a flag. It counts in the broken-run share and
   the bisectable share (and in sabotage accuracy for sabotage runs), but it is **left out of the
   censoring rate, the KM curve and the wasted-token share**. Report the count of such runs on
@@ -484,7 +487,7 @@ Used for:
 |---|---|---|
 | bisectable share | runs with status FOUND | runs whose final state fails the oracle |
 | censoring rate | censored rows | rows in the lag analysis (§5.1) |
-| sabotage accuracy | sabotage runs with `t_err == sabotage_step` | all sabotage runs whose final state fails (not-bisectable counts as wrong) |
+| sabotage accuracy | rated runs where a final-state culprit **or** a seen-break episode (§8.4) has `t_err == sabotage_step` | sabotage runs whose final state fails **or** that have a seen-break episode (the agent saw and fixed the plant); not-bisectable counts as wrong |
 | failed-run share | runs whose final state fails | all runs |
 
 ### 6.2 Seeded bootstrap (`stats.bootstrap_ci`)
@@ -638,7 +641,8 @@ fixture library and these tasks*. Write "Flash broke an existing test in X of 16
     does not pass at `j`, fall back to `0..k`.
   - **Sabotage runs contribute no episodes.** The injected break changes what the agent does
     afterwards, so drop the whole run from the series, as §5.1 drops it from the lag analysis.
-    An episode whose `t_err` is the injected step stays listed with a reason and no lag.
+    Their episodes are still found and listed (case studies), and they count for sabotage
+    accuracy (§6.1).
   - **Bootstrap items:** only the runs with at least one bisected episode. A run with none adds
     no lag, so including it would only produce empty resamples.
 - **Suite cannot run** (oracle ERROR per §2.1 on the whole suite):
