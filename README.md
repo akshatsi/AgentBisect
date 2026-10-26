@@ -34,6 +34,26 @@ The verdict comes from running tests. No language model decides pass or fail. A 
 
 Our research question: how many steps pass between the step that broke the code and the first step where the agent could see the failure? We call that the **detection lag**. The finding below measures it across open models.
 
+## Screenshots
+
+Each report is one HTML file that opens offline, with a replay of the search, a step-by-step inspector and a light and a dark theme. Press `Space` on a report to play the replay.
+
+![A run report in the middle of the replay. It shows the verdict, the detection lag, and the probes that narrow the search to step 8.](docs/img/run-replay.png)
+
+*The report for `humanize-planted-break`, three probes into the replay. Green steps pass, red steps fail, and the striped band is still unknown.*
+
+![The step inspector in the dark theme. It shows the agent's words and the diff of the step that broke a test.](docs/img/run-diff.png)
+
+*The inspector for the step that broke `test_cancel_restores_stock`: what the agent said, then the diff, with line numbers.*
+
+![The study page. It shows the project name, three demo runs as cards, and the headline numbers with their intervals.](docs/img/study.png)
+
+*`runs/demo/study/study.html`: the landing page for the demo runs, then the numbers, the lag chart and the sortable table.*
+
+![The replay on a phone, 390 pixels wide.](docs/img/mobile.png)
+
+*The same replay at phone width.*
+
 ## Use it on your own project
 
 Point AgentBisect at a Python project that has pytest tests. It copies the project, an agent works on the copy, and you bisect the result. Your original repo is not modified.
