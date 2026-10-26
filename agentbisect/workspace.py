@@ -199,11 +199,14 @@ def plan_install(workdir: Path, python: Path) -> list[list[str]]:
     """The ``uv pip install`` commands for this project layout, in order (pytest not included).
 
     * ``requirements*.txt`` and ``requirements/test*.txt``: one command with every file as ``-r``.
-    * ``pyproject.toml`` with a ``[project]`` table: a normal (not editable) install of the
-      project with whichever of the test/tests/testing/dev extras it defines, plus
+    * ``pyproject.toml`` with a ``[project]`` table: an editable install of the project with
+      whichever of the test/tests/testing/dev extras it defines, plus
       ``--group <pyproject>:<name>`` for each of the test/tests/dev dependency groups it defines.
     * a ``pyproject.toml`` with only dependency groups: just the ``--group`` flags.
-    * ``setup.py`` / ``setup.cfg`` without a pyproject: a normal install of the directory.
+    * ``setup.py`` / ``setup.cfg`` without a pyproject: an editable install of the directory.
+
+    Editable, so the agent's own test runs import its working copy. The oracle still tests each
+    snapshot, because it puts the scratch tree first on ``PYTHONPATH``.
     """
     base = ["uv", "pip", "install", "--python", str(python)]
     commands: list[list[str]] = []
@@ -224,13 +227,13 @@ def plan_install(workdir: Path, python: Path) -> list[list[str]]:
         target = str(workdir) + (f"[{','.join(extras)}]" if extras else "")
         cmd = list(base)
         if "project" in pyproject:
-            cmd.append(target)
+            cmd += ["-e", target]
         for g in groups:
             cmd += ["--group", f"{workdir / 'pyproject.toml'}:{g}"]
         if len(cmd) > len(base):
             commands.append(cmd)
     elif (workdir / "setup.py").is_file() or (workdir / "setup.cfg").is_file():
-        commands.append([*base, str(workdir)])
+        commands.append([*base, "-e", str(workdir)])
     return commands
 
 

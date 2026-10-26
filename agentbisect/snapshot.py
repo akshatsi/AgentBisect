@@ -28,8 +28,26 @@ EXCLUDES = (
     ".venv/",
     "venv/",
     "node_modules/",
+    ".tox/",
+    "build/",
+    "dist/",
+    "*.egg-info/",
+    "htmlcov/",
+    ".coverage",
     ".DS_Store",
 )
+
+
+def _pathspec(pattern: str) -> str:
+    """``EXCLUDES`` entry as a git exclude pathspec that matches at any depth."""
+    body = pattern.rstrip("/")
+    tail = "/**" if pattern.endswith("/") or pattern == ".git" else ""
+    return f":(exclude,glob)**/{body}{tail}"
+
+
+#: Snapshots ignore the project's own ``.gitignore``: generated files such as a build-time
+#: ``_version.py`` are often ignored there, and tests fail to import without them.
+EXCLUDE_PATHSPECS = tuple(_pathspec(p) for p in EXCLUDES)
 
 
 class SnapshotError(RuntimeError):
@@ -117,7 +135,7 @@ def init_shadow(run_dir: Path, workdir: Path) -> str:
 
 
 def _write_tree(run_dir: Path, workdir: Path) -> str:
-    _git(run_dir, "add", "-A", "--", ".", workdir=workdir)
+    _git(run_dir, "add", "-A", "--force", "--", ".", *EXCLUDE_PATHSPECS, workdir=workdir)
     return _git_text(run_dir, "write-tree", workdir=workdir)
 
 

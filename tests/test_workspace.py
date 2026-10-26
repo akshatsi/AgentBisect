@@ -223,11 +223,10 @@ def test_setup_pyproject_extras_and_groups(monkeypatch, project):
     assert fake.installs() == [
         [
             "uv", "pip", "install", "--python", str(py),
-            f"{wd}[test,dev]",
+            "-e", f"{wd}[test,dev]",
             "--group", f"{wd / 'pyproject.toml'}:test",
         ]
     ]  # fmt: skip
-    assert not any("-e" in c or "--editable" in c for c in fake.calls)
 
 
 def test_setup_pyproject_without_extras_installs_plain_project(monkeypatch, project):
@@ -235,7 +234,7 @@ def test_setup_pyproject_without_extras_installs_plain_project(monkeypatch, proj
     fake = FakeUv()
     py = run_setup(monkeypatch, project, fake)
     assert fake.installs() == [
-        ["uv", "pip", "install", "--python", str(py), str(project.resolve())]
+        ["uv", "pip", "install", "--python", str(py), "-e", str(project.resolve())]
     ]
 
 

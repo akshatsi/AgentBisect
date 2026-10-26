@@ -208,6 +208,9 @@ def _init_local_git(workdir: Path) -> None:
         ["commit", "-q", "--no-verify", "-m", "task start"],
     ):
         subprocess.run(["git", *args], cwd=workdir, env=env, check=True, timeout=60)
+    # Keep the recorder plugin out of the agent's `git status` and diffs.
+    with (workdir / ".git" / "info" / "exclude").open("a") as f:
+        f.write(".opencode/\n")
 
 
 def _default_run_id(prefix: str, model_alias: str | None) -> str:

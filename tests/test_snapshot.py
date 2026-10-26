@@ -152,3 +152,22 @@ def test_opencode_plugin_dir_is_never_snapshotted(tmp_path: Path, work: Path) ->
     scratch = run / "scratch"
     snapshot.restore(run, s1, scratch)
     assert not (scratch / ".opencode").exists()
+
+
+def test_snapshot_keeps_files_the_project_gitignores(tmp_path):
+    """Generated files (e.g. a build-time _version.py) are often in .gitignore but needed by tests."""
+    from agentbisect import snapshot
+
+    wd = tmp_path / "wd"
+    (wd / "pkg").mkdir(parents=True)
+    (wd / ".gitignore").write_text("pkg/_version.py\nbuild/\n")
+    (wd / "pkg" / "_version.py").write_text("v = '1'\n")
+    (wd / "pkg" / "__pycache__").mkdir()
+    (wd / "pkg" / "__pycache__" / "x.pyc").write_bytes(b"0")
+    (wd / "build").mkdir()
+    (wd / "build" / "junk.txt").write_text("x")
+    run = tmp_path / "run"
+    base = snapshot.init_shadow(run, wd)
+    files = snapshot._git_text(run, "ls-tree", "-r", "--name-only", base).split()
+    assert "pkg/_version.py" in files
+    assert not any("__pycache__" in f or f.startswith("build/") for f in files)
