@@ -1,0 +1,6 @@
+Extend natural_list in src/humanize/lists.py with two optional keyword arguments:
+
+- conjunction (default "and"): the word before the last item, e.g. natural_list(["a", "b", "c"], conjunction="or") returns "a, b or c".
+- oxford_comma (default False): when True and there are three or more items, put a comma before the conjunction, e.g. "a, b, and c".
+
+Calls without the new arguments must behave exactly as today. Update the docstring examples and add tests. Make sure the whole test suite passes when you are done.
