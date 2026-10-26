@@ -57,7 +57,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agentbisect import snapshot
+from agentbisect import snapshot, workspace
 from agentbisect.harness.agent import Sabotage, resolve_repo
 from agentbisect.harness.tools import clip
 from agentbisect.llm import PROJECT_ROOT
@@ -185,13 +185,13 @@ def render_plugin(run_dir: Path, python: str | None = None) -> str:
     return text
 
 
-def agent_prompt(prompt: str) -> str:
-    """The task prompt with ``python`` pinned to this venv.
+def agent_prompt(prompt: str, python: str | Path | None = None) -> str:
+    """The task prompt with ``python`` pinned to this venv (or to ``python``).
 
     Alan Code's shell has no ``python`` and its ``python3`` lacks pytest, so an agent told to run
     ``python -m pytest`` could never see a test fail.
     """
-    python = shlex.quote(sys.executable)
+    python = shlex.quote(str(python or sys.executable))
     return prompt.rstrip().replace("`python -m pytest", f"`{python} -m pytest") + "\n"
 
 
@@ -210,6 +210,27 @@ def _init_local_git(workdir: Path) -> None:
         subprocess.run(["git", *args], cwd=workdir, env=env, check=True, timeout=60)
 
 
+def _default_run_id(prefix: str, model_alias: str | None) -> str:
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", model_alias or "alancode").strip("-")
+    return f"{prefix}-{label}-{stamp}"
+
+
+def _new_run_dir(runs_dir: Path, run_id: str) -> Path:
+    run_dir = (Path(runs_dir) / run_id).resolve()
+    if run_dir.exists():
+        raise FileExistsError(f"run directory {run_dir} already exists")
+    return run_dir
+
+
+def _install_plugin(run_dir: Path, workdir: Path) -> None:
+    """The plugin calls back into AgentBisect, so it always uses this interpreter, never the
+    project's venv (which has no ``agentbisect``)."""
+    plugin = workdir / PLUGIN_RELPATH
+    plugin.parent.mkdir(parents=True, exist_ok=True)
+    plugin.write_text(render_plugin(run_dir, sys.executable))
+
+
 def prepare_opencode_run(
     task: TaskSpec,
     runs_dir: Path,
@@ -222,13 +243,8 @@ def prepare_opencode_run(
     ``meta.json``, ``task.json``, ``PROMPT.txt`` and the plugin at
     ``workdir/.opencode/plugin/agentbisect.js``.
     """
-    runs_dir = Path(runs_dir)
-    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    label = re.sub(r"[^A-Za-z0-9._-]+", "-", model_alias or "alancode").strip("-")
-    run_id = run_id or f"{task.id}-{label}-{stamp}"
-    run_dir = (runs_dir / run_id).resolve()
-    if run_dir.exists():
-        raise FileExistsError(f"run directory {run_dir} already exists")
+    run_dir = _new_run_dir(runs_dir, run_id or _default_run_id(task.id, model_alias))
+    run_id = run_dir.name
     workdir = run_dir / "workdir"
     shutil.copytree(
         resolve_repo(task.repo),
@@ -244,13 +260,78 @@ def prepare_opencode_run(
         base_snapshot=base,
         task_id=task.id,
         model=model_alias,
+        python=Path(sys.executable),
     )
     Trace(meta=meta).save(run_dir)
     (run_dir / "task.json").write_text(task.model_dump_json(indent=2))
     (run_dir / "PROMPT.txt").write_text(agent_prompt(task.prompt))
-    plugin = workdir / PLUGIN_RELPATH
-    plugin.parent.mkdir(parents=True, exist_ok=True)
-    plugin.write_text(render_plugin(run_dir))
+    _install_plugin(run_dir, workdir)
+    return run_dir
+
+
+def _repo_name(origin: str) -> str:
+    local = Path(origin).expanduser()
+    name = local.resolve().name if local.is_dir() else origin.rstrip("/").rsplit("/", 1)[-1]
+    name = re.sub(r"\.git$", "", name)
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.") or "repo"
+
+
+def repo_prompt(prompt: str, python: Path | str, test_command: str) -> str:
+    """The user's prompt, with ``python -m pytest`` pinned to the project's venv, plus one line
+    telling the agent how to run the tests (Alan's shell has no ``python`` or pytest)."""
+    quoted = shlex.quote(str(python))
+    command = test_command.replace("python", quoted, 1)
+    note = (
+        f"Run the tests with `{command}`. "
+        "The shell has no `python` or `pytest` on its path, so use that interpreter."
+    )
+    return f"{agent_prompt(prompt, python).rstrip()}\n\n{note}\n"
+
+
+def prepare_repo_run(
+    origin: str,
+    prompt: str,
+    runs_dir: Path,
+    *,
+    model_alias: str | None = None,
+    run_id: str | None = None,
+    ref: str | None = None,
+    setup: bool = True,
+) -> Path:
+    """Set up ``runs/<id>/`` for a hand-started Alan Code session on the user's own project.
+
+    ``origin`` is a local directory or a git URL (``https://`` or ``file://``). The project is
+    copied or cloned into ``runs/<id>/workdir``; the original is never modified. With
+    ``setup=True`` the project's dependencies go into ``runs/<id>/venv`` (see ``workspace.py``,
+    which runs the repo's build code, so use trusted repos only); with ``setup=False`` the
+    AgentBisect interpreter is used. Raises ``workspace.SetupError`` if the install fails (the run
+    directory and its ``setup.log`` stay for inspection).
+    """
+    run_dir = _new_run_dir(runs_dir, run_id or _default_run_id(_repo_name(origin), model_alias))
+    run_id = run_dir.name
+    workdir = run_dir / "workdir"
+    try:
+        workspace.materialize(origin, workdir, ref=ref)
+        _init_local_git(workdir)
+    except BaseException:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        raise
+    python = workspace.setup_env(workdir, run_dir / "venv") if setup else Path(sys.executable)
+    base = snapshot.init_shadow(run_dir, workdir)
+    meta = TraceMeta(
+        run_id=run_id,
+        source=TraceSource.ALAN_CODE,
+        workdir=workdir.resolve(),
+        base_snapshot=base,
+        task_id=None,
+        model=model_alias,
+        repo_origin=origin,
+        python=python,
+    )
+    Trace(meta=meta).save(run_dir)
+    test_command = workspace.detect_test_command(workdir)
+    (run_dir / "PROMPT.txt").write_text(repo_prompt(prompt, python, test_command))
+    _install_plugin(run_dir, workdir)
     return run_dir
 
 

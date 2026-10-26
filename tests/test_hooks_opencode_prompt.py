@@ -40,3 +40,15 @@ def test_resumed_conversation_is_flagged(tmp_path):
     assert not _resumed(tmp_path)
     (tmp_path / "events.jsonl").write_text('{"text": "<resume_context>\\nUser: old task"}\n')
     assert _resumed(tmp_path)
+
+
+def test_task_run_records_this_python(tmp_path):
+    from agentbisect.hooks.opencode import prepare_opencode_run
+    from agentbisect.models import TaskSpec, Trace
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n")
+    task = TaskSpec(id="t", title="t", prompt="p", repo=repo)
+    run_dir = prepare_opencode_run(task, tmp_path / "runs", "flash", "r1")
+    assert Trace.load(run_dir).meta.python == __import__("pathlib").Path(sys.executable)
