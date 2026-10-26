@@ -92,12 +92,17 @@ Run `agentbisect run --trace runs/demo/<id>` on the other folders the same way: 
 
 ## What the report shows
 
-- A banner with the decisive step, the failing test, the lag (or "never noticed") and the tokens spent after the break.
-- A timeline of every step. The decisive step is red, the step where the agent first sees the failure is blue, and the steps between are shaded as "working on broken code".
-- The diff of the decisive step, the agent's own words just before it, and the test output.
-- A section "Breaks the agent caught and fixed", for runs where the agent broke a test, saw it fail and fixed it before the end: the breaking step with its diff, when the agent saw the failure, and the steps and tokens spent in between.
-- The probe log: which steps the bisect tested, how many runs each took, and how sure it is.
-- Optional "AI explanation" (`agentbisect report --explain`, needs credentials).
+`agentbisect report` writes one interactive HTML file. It opens offline, with no server and no network.
+
+- **Verdict:** the decisive step, the failing tests (grouped by step), the lag or "never noticed", and the tokens spent after the break.
+- **Bisect replay:** press Play and watch the search. Each probe restores one snapshot and runs your test. The good/bad range shrinks until it lands on the culprit. Space plays, the arrow keys step.
+- **Step explorer:** click any step for the agent's reasoning, tool call, output, tokens, and a coloured diff of what that step changed. Search the trace, or show only steps that changed the repo.
+- **Detection lag:** steps and tokens between the break and the moment the agent saw it.
+- **Caught and fixed:** runs where the agent broke a test, saw it fail and fixed it before the end.
+- **Probe log and confidence:** which steps were tested and how sure the verdict is.
+- Optional "AI explanation" (`agentbisect report --explain`, needs credentials). It is labelled and never decides pass or fail.
+
+`agentbisect study --runs runs/demo` writes `runs/demo/study/study.html`, a landing page with the headline numbers and a card for each demo run.
 
 ## How it works
 
