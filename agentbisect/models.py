@@ -242,6 +242,11 @@ class Analysis(BaseModel):
     wasted_tokens: int = Field(description="Tokens spent in steps after t_err.")
     total_tokens: int
     observed_signal: str | None = Field(default=None, description="The line that matched at t_obs.")
+    no_opportunity: bool = Field(
+        default=False,
+        description="The break came on the last step and no later tool output could show it "
+        "(METHODS §4.4). Left out of censoring, KM and wasted-token statistics.",
+    )
 
     @property
     def wasted_share(self) -> float:
@@ -335,6 +340,7 @@ class StudyRow(BaseModel):
     total_tokens: int = 0
     cost_usd: float = 0.0
     sabotage_correct: bool | None = Field(default=None, description="t_err == sabotage_step.")
+    no_opportunity: bool = Field(default=False, description="See Analysis.no_opportunity.")
 
 
 TaskSpec.model_rebuild()
