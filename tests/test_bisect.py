@@ -388,6 +388,32 @@ def test_bisect_run_explicit_check_fills_the_culprit(tmp_path: Path) -> None:
     RunReport.model_validate_json(report.model_dump_json())  # what the CLI writes
 
 
+def test_break_the_agent_saw_and_fixed_is_reported_as_repaired(tmp_path: Path) -> None:
+    # Break at 9, the agent's pytest at 13 shows it, a fix at 18: the run ends green.
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=24, break_at=9, observe_at=13, fix_at=18)
+    for check in (None, CHECK):  # auto-oracle, then an explicit check
+        report = bisect_run(trace, run, check)
+        # auto: nothing fails at the end; explicit: the check passes at the end, not bisectable
+        assert [c.bisect.status for c in report.culprits] == (
+            [] if check is None else [BisectStatus.NOT_BISECTABLE]
+        )
+        (ep,) = report.repaired
+        assert (ep.t_err, ep.seen_at, ep.lag, ep.reason) == (9, 13, 4, None)
+        assert ep.check == f"{SUITE_CMD} tests/test_calc.py::test_add"
+        assert ep.wasted_tokens == sum(s.tokens for s in trace.steps[9:13])
+        RunReport.model_validate_json(report.model_dump_json())
+
+
+def test_break_still_live_at_the_end_is_a_culprit_not_a_repair(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    trace = make_synthetic_run(run, n_steps=24, break_at=9, observe_at=13)
+    for check in (None, CHECK):
+        report = bisect_run(trace, run, check)
+        assert [c.bisect.decisive_step for c in report.culprits] == [9]
+        assert report.repaired == []
+
+
 def test_bisect_run_not_bisectable_has_no_analysis(tmp_path: Path) -> None:
     run = tmp_path / "run"
     trace = make_synthetic_run(run, n_steps=5, break_at=2)

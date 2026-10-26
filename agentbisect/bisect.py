@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agentbisect import snapshot, stats
-from agentbisect.analyze import analyze
+from agentbisect.analyze import SignalMatcher, analyze
 from agentbisect.models import (
     BisectResult,
     BisectStatus,
@@ -22,8 +22,10 @@ from agentbisect.models import (
     OraclePolicy,
     OracleResult,
     OracleRun,
+    RepairEpisode,
     RunReport,
     Step,
+    ToolKind,
     Trace,
     Verdict,
 )
@@ -458,6 +460,238 @@ def culprit_report(trace: Trace, run_dir: Path, result: BisectResult) -> Culprit
     return report
 
 
+# --------------------------------------------------------------------------- repaired breaks
+
+_PYTEST_RUN = re.compile(r"(?:^|[\s/;&|(])(?:pytest|py\.test)(?=$|[\s;&|)])")
+_CMD_END = re.compile(r"&&|\|\||[;|]|\s\d?>")
+_VALUE_OPTS = frozenset(
+    [
+        "-p",
+        "-c",
+        "-o",
+        "-n",
+        "--rootdir",
+        "--tb",
+        "--maxfail",
+        "--ignore",
+        "--ignore-glob",
+        "--deselect",
+        "--junitxml",
+        "--durations",
+        "--basetemp",
+        "--import-mode",
+        "--confcutdir",
+        "--override-ini",
+    ]
+)
+_PARTIAL_OPTS = frozenset({"-m", "--lf", "--last-failed", "--sw", "--stepwise", "--ff"})
+
+
+def _command(step: Step) -> str:
+    args = step.args or {}
+    return str(args.get("command") or args.get("cmd") or "")
+
+
+def pytest_run(command: str) -> tuple[list[str], bool] | None:
+    """``(path arguments, partial)`` if ``command`` runs pytest, else None.
+
+    ``partial`` is True when a flag (``-k``, ``-m``, ``--lf``) means the run may skip tests that
+    its paths cover. Only the first pytest in the command is read, up to ``&&``, ``;`` or a pipe.
+    """
+    m = _PYTEST_RUN.search(command)
+    if m is None:
+        return None
+    rest = _CMD_END.split(command[m.end() :], maxsplit=1)[0]
+    try:
+        tokens = shlex.split(rest)
+    except ValueError:
+        tokens = rest.split()
+    targets: list[str] = []
+    partial = False
+    skip = False
+    for tok in tokens:
+        if skip:
+            skip = False
+        elif tok.startswith("-"):
+            if tok == "-k" or (tok.startswith("-k") and not tok.startswith("--")):
+                partial, skip = True, tok == "-k"
+            elif tok in _PARTIAL_OPTS:
+                partial, skip = True, tok == "-m"
+            elif tok in _VALUE_OPTS:
+                skip = True
+        else:
+            targets.append(tok)
+    return targets, partial
+
+
+def _covers(targets: list[str], partial: bool, node: str) -> bool:
+    """True if a pytest run with these path arguments runs the test ``node``."""
+    if partial:
+        return False
+    if not targets:
+        return True
+    file_part = node.split("::", 1)[0]
+    for raw in targets:
+        t = raw[2:] if raw.startswith("./") else raw
+        if t in ("", "."):
+            return True
+        if "::" in t:
+            if node == t or node.startswith((t + "::", t + "[")):
+                return True
+        else:
+            base = t.rstrip("/")
+            if file_part == base or file_part.startswith(base + "/"):
+                return True
+    return False
+
+
+def _could_show_failure(step: Step) -> bool:
+    if step.kind is not ToolKind.SHELL or step.exit_code == 0:
+        return False
+    return pytest_run(_command(step)) is not None
+
+
+class _Start:
+    """A test failure seen by the agent at ``k``, after the agent last saw it pass at ``last_pass``.
+
+    ``fixed`` is True when a later agent pytest run that covered the test showed it passing.
+    """
+
+    def __init__(self, node: str, k: int, last_pass: int | None) -> None:
+        self.node, self.k, self.last_pass = node, k, last_pass
+        self.fixed = False
+
+
+def _episode_starts(trace: Trace, nodes: list[str]) -> list[_Start]:
+    """Streak starts per test (METHODS §8.4, simplest reading).
+
+    Walk the agent's pytest runs in order. A run whose output shows a §4.2 failure signal for a
+    test (checked with the test's own node ID, no touched files) starts an episode unless the
+    test was already failing at the agent's previous run that covered it. A covering run with no
+    signal means the test passed there; it ends the streak and marks the episode ``fixed``.
+    """
+    matchers: dict[str, SignalMatcher] = {}
+    open_start: dict[str, _Start | None] = {}
+    last_pass: dict[str, int | None] = {}
+    starts: list[_Start] = []
+    for step in trace.steps:
+        if step.kind is not ToolKind.SHELL:
+            continue
+        run = pytest_run(_command(step))
+        if run is None:
+            continue
+        targets, partial = run
+        for node in nodes:
+            if node not in matchers:
+                matchers[node] = SignalMatcher(f"{SUITE_CMD} {shlex.quote(node)}", [])
+            if matchers[node].signal(step) is not None:
+                if open_start.get(node) is None:
+                    start = _Start(node, step.index, last_pass.get(node))
+                    starts.append(start)
+                    open_start[node] = start
+            elif _covers(targets, partial, node):
+                current = open_start.get(node)
+                if current is not None:
+                    current.fixed = True
+                    last_pass[node] = step.index
+                open_start[node] = None
+    return starts
+
+
+def _window(trace: Trace, lo: int, hi: int) -> Trace:
+    """Steps ``lo+1..hi`` as a trace of their own, with ``S(lo)`` as its base (step 0).
+
+    ``window(trace, 0, k)`` is the trace cut to its first ``k`` steps. Indices shift down by
+    ``lo``; snapshots and tokens are untouched.
+    """
+    steps = [s.model_copy(update={"index": s.index - lo}) for s in trace.steps[lo:hi]]
+    meta = trace.meta.model_copy(update={"base_snapshot": trace.snapshot_at(lo)})
+    return Trace(meta=meta, steps=steps)
+
+
+def _bisect_episode(
+    trace: Trace,
+    run_dir: Path,
+    start: _Start,
+    timeout_s: float,
+    executor_factory: ExecutorFactory | None = None,
+) -> RepairEpisode:
+    check = f"{SUITE_CMD} {shlex.quote(start.node)}"
+    config = OracleConfig(check=check, timeout_s=timeout_s)
+    episode = RepairEpisode(run_id=run_dir.name, check=check, seen_at=start.k)
+    # METHODS §8.4 bisects 0..k. If the agent saw this test pass earlier (at ``last_pass``), the
+    # history has a repaired break and plain bisect over 0..k could stop on the old one, so
+    # start at the last pass. If the oracle disagrees there, fall back to 0..k.
+    lows = [start.last_pass, 0] if start.last_pass else [0]
+    reason = None
+    for lo in lows:
+        executor = executor_factory(check) if executor_factory else None
+        result = bisect(_window(trace, lo, start.k), run_dir, config, executor=executor)
+        if result.status is BisectStatus.FOUND and result.decisive_step is not None:
+            t_err = lo + result.decisive_step
+            episode.t_err = t_err
+            episode.lag = start.k - t_err
+            episode.wasted_tokens = sum(s.tokens for s in trace.steps[t_err : start.k])
+            return episode
+        reason = result.reason
+    episode.reason = reason or "not bisectable"
+    return episode
+
+
+def find_episodes(
+    trace: Trace,
+    run_dir: Path,
+    timeout_s: float = 120.0,
+    *,
+    final_failing: Callable[[], set[str] | None] | None = None,
+    only_repaired: bool = False,
+    executor_factory: ExecutorFactory | None = None,
+    suite_runner: SuiteRunner | None = None,
+) -> list[RepairEpisode]:
+    """Breaks the agent saw (METHODS §8.4), for any run, sabotage runs included.
+
+    For every test that passes at step 0 and fails in an agent pytest run at step ``k`` (see
+    ``_episode_starts``), bisect that test over steps ``0..k`` and return ``lag = k - t_err`` and
+    the tokens of steps ``t_err+1..k``. The suite runs at step 0 only if some pytest step could
+    show a failure. The study drops sabotage episodes from its lag series (``summarize``); this
+    function does not.
+
+    With ``only_repaired`` an episode is kept only if the agent later saw the test pass, or
+    ``final_failing()`` (called at most once, when needed; None means unknown) says the test
+    passes at the final step. Breaks still live at the end are the culprits' business.
+    """
+    run_dir = Path(run_dir).resolve()
+    if not any(_could_show_failure(s) for s in trace.steps):
+        return []
+    outcomes, _problem = suite_outcomes(
+        run_dir, trace.meta.base_snapshot, timeout_s, suite_runner, python=trace.meta.python
+    )
+    nodes = [n for n, status in (outcomes or {}).items() if status == "PASSED" and "::" in n]
+    if not nodes:
+        return []
+    starts = _episode_starts(trace, nodes)
+    if only_repaired:
+        live: set[str] | None = None
+        if any(not s.fixed for s in starts) and final_failing is not None:
+            live = final_failing()
+        starts = [s for s in starts if s.fixed or (live is not None and s.node not in live)]
+    episodes = [_bisect_episode(trace, run_dir, s, timeout_s, executor_factory) for s in starts]
+    episodes.sort(key=lambda e: (e.seen_at, e.check))
+    return episodes
+
+
+def _final_failing_nodes(
+    trace: Trace, run_dir: Path, timeout_s: float, suite_runner: SuiteRunner | None
+) -> set[str] | None:
+    """Tests that do not pass at the final step (one suite run), or None if it cannot run."""
+    outcomes, _problem = suite_outcomes(
+        run_dir, trace.snapshot_at(trace.n), timeout_s, suite_runner, python=trace.meta.python
+    )
+    if outcomes is None:
+        return None
+    return {node for node, status in outcomes.items() if status != "PASSED"}
+
+
 def bisect_run(
     trace: Trace,
     run_dir: Path,
@@ -476,6 +710,11 @@ def bisect_run(
     bisectable ones. Auto-oracle bisects at most ``MAX_AUTO_CULPRITS`` tests (sorted by node ID);
     the others are named in ``checks`` with ``CAP_NOTE`` and get no culprit. A missing project
     venv (``trace.meta.python``) gives one not-bisectable culprit.
+
+    ``RunReport.repaired`` lists the breaks the agent saw in its own pytest runs and fixed before
+    the end (``find_episodes`` with ``only_repaired``), for every run and both modes. A run that
+    ends green can therefore still say where the agent broke something. With ``check`` the
+    final state is read from one more suite run.
 
     An auto-oracle run with nothing newly failing returns no culprits. If the suite itself could
     not run, it returns one not-bisectable culprit whose check is ``SUITE_CMD`` and whose reason
@@ -498,6 +737,10 @@ def bisect_run(
                 culprits=[culprit_report(trace, run_dir, failed)],
             )
         checks = [check]
+
+        def final_failing() -> set[str] | None:
+            return _final_failing_nodes(trace, run_dir, timeout_s, suite_runner)
+
     else:
         nodes, problem = discover_failing_tests(trace, run_dir, timeout_s, suite_runner)
         if problem:
@@ -511,6 +754,11 @@ def bisect_run(
                 auto_oracle=True,
             )
         nodes = sorted(nodes)
+        final_nodes = set(nodes)
+
+        def final_failing() -> set[str] | None:
+            return final_nodes
+
         checks = [f"{SUITE_CMD} {shlex.quote(node)}" for node in nodes]
         skipped = [c + CAP_NOTE for c in checks[MAX_AUTO_CULPRITS:]]
         checks = checks[:MAX_AUTO_CULPRITS]
@@ -530,4 +778,19 @@ def bisect_run(
     )
     if auto:
         checks = checks + skipped
-    return RunReport(run_id=trace.meta.run_id, checks=checks, culprits=culprits, auto_oracle=auto)
+    repaired = find_episodes(
+        trace,
+        run_dir,
+        timeout_s,
+        final_failing=final_failing,
+        only_repaired=True,
+        executor_factory=executor_factory,
+        suite_runner=suite_runner,
+    )
+    return RunReport(
+        run_id=trace.meta.run_id,
+        checks=checks,
+        culprits=culprits,
+        auto_oracle=auto,
+        repaired=repaired,
+    )
