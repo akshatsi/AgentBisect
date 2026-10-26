@@ -7,20 +7,35 @@ for a non-monotone history. All statistical numbers come from ``agentbisect.stat
 
 from __future__ import annotations
 
+import re
+import shlex
+from collections.abc import Callable
 from pathlib import Path
 
 from agentbisect import snapshot, stats
+from agentbisect.analyze import analyze
 from agentbisect.models import (
     BisectResult,
     BisectStatus,
+    CulpritReport,
     OracleConfig,
     OraclePolicy,
     OracleResult,
+    OracleRun,
+    RunReport,
     Step,
     Trace,
     Verdict,
 )
-from agentbisect.oracle import Executor, Oracle, classify, count_runs
+from agentbisect.oracle import (
+    ERROR_EXIT_CODES,
+    Executor,
+    Oracle,
+    classify,
+    count_runs,
+    describe_error,
+    run_command,
+)
 
 
 def describe_step(step: Step) -> str:
@@ -82,6 +97,13 @@ class _Run:
             for j in self.order
         ]
 
+    def error_cause(self, sha: str) -> str:
+        """Why the last erroring run on ``sha`` gave no answer (or a generic phrase)."""
+        errors = [r for r in self.oracle.runs_for(sha) if classify(r) is Verdict.ERROR]
+        if not errors:
+            return "the oracle gave no answer"
+        return describe_error(errors[-1], self.config.timeout_s)
+
     def counts(self, sha: str) -> tuple[int, int]:
         n_fail, n_counted, _ = count_runs(self.oracle.runs_for(sha))
         return n_fail, n_counted
@@ -102,7 +124,7 @@ class _Run:
             runs = self.oracle.runs_for(self.sha[j])
             _, n_counted, _ = count_runs(runs)
             if n_counted == 0:
-                raise _Stop(f"oracle error at {name} (timeout, no tests collected, or crash)")
+                raise _Stop(f"oracle error at {name}: {self.error_cause(self.sha[j])}")
             kinds = {classify(r) for r in runs} - {Verdict.ERROR}
             if kinds == {wrong}:
                 if j == 0:
@@ -132,7 +154,7 @@ class _Run:
             else:
                 raise _Stop(
                     f"steps {self.cand[lo + 1]}..{self.cand[hi]} could not be tested "
-                    "(oracle errors)"
+                    f"(oracle errors: {self.error_cause(self.sha[hi - 1])})"
                 )
             if verdict is Verdict.PASS:
                 lo = cand
@@ -215,7 +237,7 @@ def bisect(
 
     ``executor`` (``sha -> OracleRun``) replaces the real check; tests use it to simulate oracles.
     """
-    run_dir = Path(run_dir)
+    run_dir = Path(run_dir).resolve()
     if trace.n == 0:
         return _not_bisectable(config, "trace has no steps", None, None, 0)
     r = _Run(trace, run_dir, config, executor)
@@ -268,8 +290,8 @@ def _decide_endpoints(r: _Run) -> None:
     v0 = r.decide(0)
     vn = r.decide(r.m)
     if v0 is Verdict.ERROR or vn is Verdict.ERROR:
-        where = "step 0" if v0 is Verdict.ERROR else f"step {r.n}"
-        raise _Stop(f"oracle error at {where} (timeout, no tests collected, or crash)")
+        j, where = (0, "step 0") if v0 is Verdict.ERROR else (r.m, f"step {r.n}")
+        raise _Stop(f"oracle error at {where}: {r.error_cause(r.sha[j])}")
     if v0 is not Verdict.PASS:
         raise _Stop("oracle does not pass at step 0")
     if vn is not Verdict.FAIL:
@@ -298,3 +320,155 @@ def _finish(r: _Run, policy: OraclePolicy, lo: int, hi: int) -> BisectResult:
         transitions=transitions,
         confidence=stats.bisect_confidence(policy, len(probes)),
     )
+
+
+# --------------------------------------------------------------------------- run: one entry point
+
+#: The auto-oracle runs the whole suite with this command (``-rA`` lists every test's outcome, and
+#: ``--continue-on-collection-errors`` keeps one broken file from hiding the other tests).
+SUITE_CMD = "python -m pytest -q"
+_SUITE_FLAGS = "-rA --continue-on-collection-errors"
+
+SuiteRunner = Callable[[str], tuple[OracleRun, str]]
+ExecutorFactory = Callable[[str], Executor]
+
+_OUTCOME_LINE = re.compile(r"^(PASSED|FAILED|ERROR) (\S.*)$")
+
+
+def parse_outcomes(output: str) -> dict[str, str]:
+    """Map pytest node ID -> ``PASSED``/``FAILED``/``ERROR`` from a ``-rA`` summary.
+
+    A collection error names a file, not a test, so its key has no ``::``.
+    """
+    outcomes: dict[str, str] = {}
+    for line in output.splitlines():
+        m = _OUTCOME_LINE.match(line.rstrip())
+        if m:
+            status, rest = m.groups()
+            outcomes[rest.split(" - ", 1)[0].strip()] = status
+    return outcomes
+
+
+def newly_failing(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """Tests that pass in ``before`` and fail (or error) in ``after``, in the order of ``before``.
+
+    A file that no longer collects takes all its passing tests with it. A test missing from
+    ``after`` (deleted or renamed) is not a failure.
+    """
+    broken_files = {k for k, v in after.items() if v != "PASSED" and "::" not in k}
+    out = []
+    for node, status in before.items():
+        if status != "PASSED":
+            continue
+        now = after.get(node)
+        if (now is not None and now != "PASSED") or (
+            now is None and node.split("::", 1)[0] in broken_files
+        ):
+            out.append(node)
+    return out
+
+
+def _suite_problem(run: OracleRun, where: str, timeout_s: float) -> str | None:
+    if run.timed_out or run.exit_code is None or run.exit_code in ERROR_EXIT_CODES:
+        return f"full suite could not run at {where}: {describe_error(run, timeout_s)}"
+    return None
+
+
+def discover_failing_tests(
+    trace: Trace, run_dir: Path, timeout_s: float, suite_runner: SuiteRunner | None = None
+) -> tuple[list[str], str | None]:
+    """Auto-oracle (ARCHITECTURE decision 3): run the suite at step 0 and step n.
+
+    Returns ``(node IDs that pass at step 0 and fail at step n, problem)``. ``problem`` is a
+    reason when the suite could not be run or had no passing test to start from.
+    """
+    run_dir = Path(run_dir).resolve()
+    scratch = run_dir / "scratch"
+
+    def default_runner(sha: str) -> tuple[OracleRun, str]:
+        snapshot.restore(run_dir, sha, scratch)
+        return run_command(f"{SUITE_CMD} {_SUITE_FLAGS}", scratch, timeout_s)
+
+    runner = suite_runner or default_runner
+    run0, out0 = runner(trace.meta.base_snapshot)
+    problem = _suite_problem(run0, "step 0", timeout_s)
+    if problem:
+        return [], problem
+    before = parse_outcomes(out0)
+    if "PASSED" not in before.values():
+        return [], "no test passes at step 0, so no test can have been broken"
+    run_n, out_n = runner(trace.snapshot_at(trace.n))
+    problem = _suite_problem(run_n, f"the final step {trace.n}", timeout_s)
+    if problem:
+        return [], problem
+    return newly_failing(before, parse_outcomes(out_n)), None
+
+
+def culprit_report(trace: Trace, run_dir: Path, result: BisectResult) -> CulpritReport:
+    """A ``CulpritReport`` for one bisect result: step, diff and detection lag if FOUND."""
+    report = CulpritReport(run_id=trace.meta.run_id, check=result.check, bisect=result)
+    if result.status is BisectStatus.FOUND and result.decisive_step is not None:
+        t = result.decisive_step
+        report.step = trace.steps[t - 1]
+        report.diff = snapshot.diff(run_dir, trace.snapshot_at(t - 1), trace.snapshot_at(t))
+        report.analysis = analyze(trace, result, run_dir)
+    return report
+
+
+def bisect_run(
+    trace: Trace,
+    run_dir: Path,
+    check: str | None,
+    timeout_s: float = 120.0,
+    *,
+    executor_factory: ExecutorFactory | None = None,
+    suite_runner: SuiteRunner | None = None,
+) -> RunReport:
+    """Everything ``agentbisect run`` does, except printing and saving ``bisect.json``.
+
+    With ``check``, bisect that one command. Without it (auto-oracle), run the full suite at step
+    0 and step n and bisect every test that passes at 0 and fails at n, each with the check
+    ``python -m pytest -q <node id>``. Each FOUND result gets its step, its diff and its detection
+    lag (``analyze``). Culprits come back FOUND first, ordered by decisive step, then not
+    bisectable ones.
+
+    An auto-oracle run with nothing newly failing returns no culprits. If the suite itself could
+    not run, it returns one not-bisectable culprit whose check is ``SUITE_CMD`` and whose reason
+    says why. Nothing is written here except the scratch worktree; the caller saves the report.
+
+    ``executor_factory`` (``check -> Executor``) and ``suite_runner`` (``sha -> (run, output)``)
+    replace the real subprocesses; tests use them. Real runs leave them None.
+    """
+    run_dir = Path(run_dir).resolve()
+    auto = check is None
+    checks: list[str]
+    if check is not None:
+        checks = [check]
+    else:
+        nodes, problem = discover_failing_tests(trace, run_dir, timeout_s, suite_runner)
+        if problem:
+            failed = BisectResult(
+                check=SUITE_CMD, status=BisectStatus.NOT_BISECTABLE, reason=problem
+            )
+            return RunReport(
+                run_id=trace.meta.run_id,
+                checks=[SUITE_CMD],
+                culprits=[culprit_report(trace, run_dir, failed)],
+                auto_oracle=True,
+            )
+        checks = [f"{SUITE_CMD} {shlex.quote(node)}" for node in nodes]
+
+    culprits = []
+    for one in checks:
+        config = OracleConfig(check=one, timeout_s=timeout_s)
+        executor = executor_factory(one) if executor_factory else None
+        result = bisect(trace, run_dir, config, executor=executor)
+        culprits.append(culprit_report(trace, run_dir, result))
+    culprits.sort(
+        key=lambda c: (
+            c.bisect.status is not BisectStatus.FOUND,
+            c.bisect.decisive_step or 0,
+            c.check,
+        )
+    )
+    return RunReport(run_id=trace.meta.run_id, checks=checks, culprits=culprits, auto_oracle=auto)

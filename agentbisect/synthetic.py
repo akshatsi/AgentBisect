@@ -7,7 +7,10 @@ Build one from the shell::
 
 A tiny package ``calc`` and a pytest file live in a work directory next to the run. Every step
 edits or adds a harmless file, except step ``break_at``, which makes ``test_add`` fail (and step
-``fix_at``, if given, repairs it, so the history is non-monotone).
+``fix_at``, if given, repairs it, so the history is non-monotone). ``break_again_at`` breaks it a
+second time with a different bug, so the history is non-monotone with no repeated tree. With
+``observe_at`` the step at that index is a shell step whose output shows the pytest failure
+(exit code 1), so detection lag can be tested end to end.
 
 ``python -m agentbisect.synthetic flaky`` wraps a command and flips its exit code (0 <-> 1) with
 probability ``p``, using a seeded RNG whose state is a call counter kept in a file, so a flaky
@@ -51,12 +54,52 @@ def answer():
 
 GOOD_BODY = "def add(a, b):\n    return a + b\n"
 BAD_BODY = "def add(a, b):\n    return a - b\n"
+BAD_BODY_2 = "def add(a, b):\n    return a * b\n"  # second, different break
+_BAD_VALUE = {BAD_BODY: -1, BAD_BODY_2: 6}  # what add(2, 3) returns under each bad body
+OBSERVE_CMD = "python -m pytest -q tests/test_calc.py::test_add"
 
 TOKENS_IN, TOKENS_OUT = 100, 50
 
 
 def _init_source(body: str, comments: list[str]) -> str:
     return INIT_HEADER + body + "".join(f"\n# {c}" for c in comments) + "\n"
+
+
+def pytest_failure_output(value: int) -> str:
+    """What ``pytest -q`` prints when ``test_add`` fails because ``add(2, 3)`` returned ``value``."""
+    rule = "_" * 34
+    return (
+        "F" + " " * 71 + "[100%]\n"
+        "=================================== FAILURES ===================================\n"
+        f"{rule} test_add {rule}\n"
+        "\n"
+        "    def test_add():\n"
+        ">       assert add(2, 3) == 5\n"
+        f"E       assert {value} == 5\n"
+        f"E        +  where {value} = add(2, 3)\n"
+        "\n"
+        "tests/test_calc.py:5: AssertionError\n"
+        "=========================== short test summary info ============================\n"
+        f"FAILED tests/test_calc.py::test_add - assert {value} == 5\n"
+        "1 failed in 0.03s\n"
+    )
+
+
+def _body_schedule(
+    n: int, break_at: int, fix_at: int | None, break_again_at: int | None
+) -> list[str]:
+    """``add()`` body after each step 0..n."""
+    bodies = [GOOD_BODY]
+    cur = GOOD_BODY
+    for i in range(1, n + 1):
+        if i == break_at:
+            cur = BAD_BODY
+        elif i == fix_at:
+            cur = GOOD_BODY
+        elif i == break_again_at:
+            cur = BAD_BODY_2
+        bodies.append(cur)
+    return bodies
 
 
 def flaky_check(run_dir: Path, p: float, seed: int, inner: str = "python -m pytest -q") -> str:
@@ -77,18 +120,34 @@ def make_synthetic_run(
     seed: int = 0,
     noop_every: int = 0,
     git_workdir: bool = False,
+    observe_at: int | None = None,
+    break_again_at: int | None = None,
+    token_growth: int = 0,
 ) -> Trace:
     """Create ``run_dir`` with a workdir, a shadow repo, and a saved trace of ``n_steps`` steps.
 
     ``noop_every=k`` makes every k-th step (other than ``break_at``/``fix_at``) a shell no-op, so
     its snapshot is deduplicated. ``git_workdir`` makes the workdir a git repo with one commit, to
     show that its ``.git`` is never touched. The suggested check goes to ``run_dir/check.txt``.
+
+    ``observe_at`` turns that step into a shell step that shows the pytest failure of ``test_add``
+    (exit code 1); the repo must be broken after it. ``break_again_at`` (after ``fix_at``) breaks
+    ``add`` a second time. ``token_growth`` adds that many input tokens per step, as a growing
+    context would (step ``i`` has ``100 + token_growth * (i - 1)`` input tokens).
     """
     run_dir = Path(run_dir)
     if not 1 <= break_at <= n_steps:
         raise ValueError("break_at must be within 1..n_steps")
     if fix_at is not None and not break_at < fix_at <= n_steps:
         raise ValueError("fix_at must be within break_at+1..n_steps")
+    if break_again_at is not None and (fix_at is None or not fix_at < break_again_at <= n_steps):
+        raise ValueError("break_again_at needs fix_at, and must be within fix_at+1..n_steps")
+    bodies = _body_schedule(n_steps, break_at, fix_at, break_again_at)
+    if observe_at is not None:
+        if not break_at <= observe_at <= n_steps:
+            raise ValueError("observe_at must be within break_at..n_steps")
+        if bodies[observe_at] == GOOD_BODY:
+            raise ValueError("observe_at must be a step after which the test fails")
     run_dir.mkdir(parents=True, exist_ok=True)
     workdir = run_dir / "workdir"
     (workdir / "calc").mkdir(parents=True)
@@ -111,23 +170,31 @@ def make_synthetic_run(
     base = snapshot.init_shadow(run_dir, workdir)
     steps: list[Step] = []
     for i in range(1, n_steps + 1):
-        special = i in (break_at, fix_at)
+        special = i in (break_at, fix_at, break_again_at, observe_at)
         reasoning = f"Step {i}."
-        if i == break_at:
-            old, body = body, BAD_BODY
+        output, exit_code = "ok", None
+        if i in (break_at, fix_at, break_again_at):
+            old, body = body, bodies[i]
             tool, kind = "edit_file", ToolKind.EDIT
             args = {"path": "calc/__init__.py", "old": old, "new": body}
-            reasoning = "Simplify add()."
+            reasoning = {break_at: "Simplify add().", fix_at: "Restore add()."}.get(
+                i, "Rewrite add() again."
+            )
             init_path.write_text(_init_source(body, comments))
-        elif i == fix_at:
-            old, body = body, GOOD_BODY
-            tool, kind = "edit_file", ToolKind.EDIT
-            args = {"path": "calc/__init__.py", "old": old, "new": body}
-            reasoning = "Restore add()."
-            init_path.write_text(_init_source(body, comments))
+            if i == observe_at:  # edit and run the test in one shell call
+                tool, kind = "run_shell", ToolKind.SHELL
+                expr = body.splitlines()[1].split("return ")[1]
+                sed = f"sed -i 's/    return a . b/    return {expr}/' calc/__init__.py"
+                args = {"command": f"{sed} && {OBSERVE_CMD}"}
+                output, exit_code = pytest_failure_output(_BAD_VALUE[body]), 1
+        elif i == observe_at:
+            tool, kind = "run_shell", ToolKind.SHELL
+            args = {"command": OBSERVE_CMD}
+            output, exit_code = pytest_failure_output(_BAD_VALUE[body]), 1
         elif noop_every and i % noop_every == 0 and not special:
             tool, kind = "run_shell", ToolKind.SHELL
             args = {"command": "ls"}
+            exit_code = 0
         elif i % 2 == 0:
             tool, kind = "edit_file", ToolKind.EDIT
             comments.append(f"note {i}")
@@ -146,12 +213,12 @@ def make_synthetic_run(
                 tool=tool,
                 kind=kind,
                 args=args,
-                output="ok",
-                exit_code=0 if kind is ToolKind.SHELL else None,
+                output=output,
+                exit_code=exit_code,
                 reasoning=reasoning,
                 snapshot=sha,
                 tree=tree,
-                tokens_in=TOKENS_IN,
+                tokens_in=TOKENS_IN + token_growth * (i - 1),
                 tokens_out=TOKENS_OUT,
             )
         )
@@ -162,7 +229,7 @@ def make_synthetic_run(
         workdir=workdir,
         base_snapshot=base,
         task_id="synthetic",
-        sabotage_step=break_at,
+        sabotage_step=break_again_at or break_at,
         finished=True,
     )
     trace = Trace(meta=meta, steps=steps)
@@ -219,6 +286,9 @@ def _cmd_make(args: argparse.Namespace) -> int:
         seed=args.seed,
         noop_every=args.noop_every,
         git_workdir=args.git_workdir,
+        observe_at=args.observe_at,
+        break_again_at=args.break_again_at,
+        token_growth=args.token_growth,
     )
     check = (out / "check.txt").read_text().strip()
     print(f"Built {args.steps}-step synthetic run in {out} (break at step {args.break_at}).")
@@ -242,6 +312,13 @@ def main(argv: list[str] | None = None) -> int:
     make.add_argument("--seed", type=int, default=0)
     make.add_argument("--noop-every", type=int, default=0)
     make.add_argument("--git-workdir", action="store_true", help="make the workdir a git repo")
+    make.add_argument(
+        "--observe-at", type=int, default=None, help="step whose shell output shows the failure"
+    )
+    make.add_argument(
+        "--break-again-at", type=int, default=None, help="second, different break (needs --fix-at)"
+    )
+    make.add_argument("--token-growth", type=int, default=0, help="extra input tokens per step")
     make.set_defaults(func=_cmd_make)
 
     flaky = sub.add_parser("flaky", help="run a command, flipping its exit code with probability p")

@@ -5,7 +5,7 @@ import pytest
 
 from agentbisect import snapshot
 from agentbisect.models import OracleConfig, OraclePolicy, OracleRun, Verdict
-from agentbisect.oracle import Oracle, classify, execute_check
+from agentbisect.oracle import Oracle, classify, describe_error, execute_check, run_command
 
 PY = f'"{sys.executable}"'
 
@@ -125,3 +125,36 @@ def test_decider_that_never_decides_still_stops(run_dir: tuple[Path, str, str]) 
     result, _ = oracle.evaluate(good, 0)
     assert result.n_runs == 2
     assert result.verdict is Verdict.PASS
+
+
+@pytest.mark.parametrize(
+    ("run", "text"),
+    [
+        (OracleRun(exit_code=127, duration_s=0), "check command not found (exit 127)"),
+        (OracleRun(exit_code=126, duration_s=0), "not executable (exit 126)"),
+        (OracleRun(exit_code=5, duration_s=0), "no tests matched the check (pytest exit 5)"),
+        (
+            OracleRun(exit_code=4, duration_s=0, output_tail="ERROR: not found: tests/x.py::t"),
+            "test ID not found (pytest exit 4)",
+        ),
+        (OracleRun(exit_code=4, duration_s=0, output_tail="bad option"), "usage error (exit 4)"),
+        (OracleRun(exit_code=3, duration_s=0), "internal error (exit 3)"),
+        (OracleRun(exit_code=None, duration_s=1, timed_out=True), "timed out"),
+        (OracleRun(exit_code=9, duration_s=0), "exit 9"),
+    ],
+)
+def test_describe_error(run: OracleRun, text: str) -> None:
+    assert text in describe_error(run)
+
+
+def test_describe_error_names_the_timeout() -> None:
+    run = OracleRun(exit_code=None, duration_s=1, timed_out=True)
+    assert describe_error(run, 120.0) == "check timed out after 120s"
+
+
+def test_run_command_returns_full_output_while_the_run_keeps_a_tail(tmp_path: Path) -> None:
+    code = "print('x' * 5000); print('END')"
+    run, full = run_command(f'{PY} -c "{code}"', tmp_path, 30)
+    assert run.exit_code == 0
+    assert len(full) > 5000 and len(run.output_tail) == 2000
+    assert run.output_tail.endswith("END\n") and full.endswith("END\n")

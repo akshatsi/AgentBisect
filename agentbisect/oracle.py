@@ -68,8 +68,12 @@ def _tail(data: bytes | str | None) -> str:
     return text[-TAIL_CHARS:]
 
 
-def execute_check(check: str, cwd: Path, timeout_s: float) -> OracleRun:
-    """Run ``check`` once with ``shell=True`` in ``cwd``. The current Python's bin dir leads PATH."""
+def run_command(check: str, cwd: Path, timeout_s: float) -> tuple[OracleRun, str]:
+    """Run ``check`` once with ``shell=True`` in ``cwd``. Returns the run and the full output.
+
+    The current Python's bin dir leads PATH, so ``python`` and ``pytest`` are the venv's.
+    """
+    cwd = Path(cwd).resolve()  # a relative cwd would be re-resolved inside the shell
     env = dict(os.environ)
     bin_dir = str(Path(sys.executable).parent)
     env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
@@ -90,17 +94,47 @@ def execute_check(check: str, cwd: Path, timeout_s: float) -> OracleRun:
             start_new_session=True,
         )
     except subprocess.TimeoutExpired as exc:
-        return OracleRun(
+        partial = exc.stdout if isinstance(exc.stdout, bytes | str) else None
+        run = OracleRun(
             exit_code=None,
             duration_s=time.monotonic() - start,
-            output_tail=_tail(exc.stdout),
+            output_tail=_tail(partial),
             timed_out=True,
         )
-    return OracleRun(
+        return run, ""
+    run = OracleRun(
         exit_code=proc.returncode,
         duration_s=time.monotonic() - start,
         output_tail=_tail(proc.stdout),
     )
+    return run, proc.stdout.decode(errors="replace")
+
+
+def execute_check(check: str, cwd: Path, timeout_s: float) -> OracleRun:
+    """Run ``check`` once in ``cwd``; only the tail of its output is kept."""
+    return run_command(check, cwd, timeout_s)[0]
+
+
+def describe_error(run: OracleRun, timeout_s: float | None = None) -> str:
+    """Why one run gave no answer: a short phrase for the "not bisectable" reason."""
+    if run.timed_out:
+        limit = f" after {timeout_s:g}s" if timeout_s else ""
+        return f"check timed out{limit}"
+    code = run.exit_code
+    tail = run.output_tail.lower()
+    if code == 127:
+        return "check command not found (exit 127)"
+    if code == 126:
+        return "check command not executable (exit 126)"
+    if code == 5:
+        return "no tests matched the check (pytest exit 5)"
+    if code == 4:
+        if "not found" in tail or "no match" in tail:
+            return "test ID not found (pytest exit 4)"
+        return "pytest usage error (exit 4)"
+    if code == 3:
+        return "pytest internal error (exit 3)"
+    return f"check could not run (exit {code})"
 
 
 class Oracle:
@@ -119,7 +153,7 @@ class Oracle:
         decide: Decider | None = None,
         executor: Executor | None = None,
     ) -> None:
-        self.run_dir = Path(run_dir)
+        self.run_dir = Path(run_dir).resolve()
         self.config = config
         self.policy = policy or fallback_policy()
         self._decide: Decider = decide or fallback_decide

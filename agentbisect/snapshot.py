@@ -15,10 +15,11 @@ from pathlib import Path
 
 GIT_TIMEOUT_S = 120.0
 
-#: Paths never snapshotted. ``.git`` keeps the user's repo out; the rest is noise that would make
+#: Paths never snapshotted. ``.git`` keeps the user's repo out; ``.opencode/`` holds the recorder plugin; the rest is noise that would make
 #: identical states look different (bytecode, tool caches) or bloat the shadow repo.
 EXCLUDES = (
     ".git",
+    ".opencode/",
     "__pycache__/",
     "*.pyc",
     ".pytest_cache/",
@@ -198,6 +199,14 @@ def diff(run_dir: Path, sha_a: str, sha_b: str, max_chars: int = 200_000) -> str
     if len(text) > max_chars:
         text = text[:max_chars] + f"\n... diff truncated at {max_chars} characters\n"
     return text
+
+
+def changed_files(run_dir: Path, sha_a: str, sha_b: str) -> list[str]:
+    """Paths that differ between snapshots ``sha_a`` and ``sha_b``, sorted, repo-relative."""
+    raw = _git(
+        Path(run_dir), "diff", "--name-only", "-z", "--no-ext-diff", "--no-renames", sha_a, sha_b
+    )
+    return sorted(p for p in raw.decode(errors="replace").split("\0") if p)
 
 
 def read_file(run_dir: Path, sha: str, path: str) -> str | None:
