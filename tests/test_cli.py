@@ -56,7 +56,7 @@ def synthetic(bisected: Path, tmp_path: Path) -> Path:
 
 def test_exactly_four_commands() -> None:
     names = {c.name or c.callback.__name__ for c in app.registered_commands}
-    assert names == {"record", "run", "report", "study"}
+    assert names == {"record", "run", "report", "study", "serve"}
     result = invoke("--help")
     assert result.exit_code == 0
     for name in names:

@@ -937,10 +937,10 @@ def test_c7_cli_has_exactly_four_commands(tmp_path: Path) -> None:
     from agentbisect.cli import app
 
     names = set(typer.main.get_command(app).commands)  # type: ignore[attr-defined]
-    assert names == {"record", "run", "report", "study"}
+    assert names == {"record", "run", "report", "study", "serve"}
     out = cli("--help", cwd=tmp_path).stdout
     listed = set(re.findall(r"^│\s+([a-z]+)\s{2,}", out, flags=re.M))
-    assert listed == {"record", "run", "report", "study"}, out
+    assert listed == {"record", "run", "report", "study", "serve"}, out
     for name in sorted(names):
         sub = cli(name, "--help", cwd=tmp_path)
         assert sub.returncode == 0, name
