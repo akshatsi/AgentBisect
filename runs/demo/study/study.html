@@ -237,9 +237,51 @@ td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-spa
 .claims .yes svg { color: var(--green); } .claims .no svg { color: var(--red); }
 .claimbox { border-left: 5px solid var(--amber); }
 
+/* ---- try it on your own repo ---- */
+#try-it { scroll-margin-top: 70px; }
+.tryfirst { margin-bottom: 8px; }
+.tryfirst code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+.trylimits { margin-bottom: 16px; max-width: 60em; }
+.tryform { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; align-items: start; }
+.field { display: grid; gap: 5px; min-width: 0; align-content: start; }
+.field.wide { grid-column: 1 / -1; }
+.field label { font-size: 13.5px; font-weight: 650; }
+.field .opt { font-weight: 500; color: var(--muted); font-size: 12.5px; }
+.field input[type="text"], .field select, .field textarea {
+  font: inherit; font-size: 14px; width: 100%; min-height: 40px; padding: 8px 12px; border-radius: 9px;
+  border: 1px solid var(--line2); background: var(--bg2); color: var(--ink); -webkit-appearance: none; appearance: none;
+}
+.field select { -webkit-appearance: menulist; appearance: auto; }
+.field textarea { resize: vertical; line-height: 1.45; }
+.field textarea.mono, .field input[type="text"] { font-family: inherit; }
+.field textarea.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.field [aria-invalid="true"] { border-color: var(--red); }
+.field .hint { font-size: 12.5px; color: var(--muted); }
+.field .ferr { font-size: 13px; color: var(--red); font-weight: 600; }
+.checks { display: grid; gap: 10px; }
+.field label.check { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 28px; }
+.check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.plant { border: 1px dashed var(--amber); border-radius: 12px; padding: 14px; background: var(--amber-bg); gap: 12px; }
+.plantgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.plantgrid .field.wide { grid-column: 1 / -1; }
+.plant .field input[type="text"], .plant .field textarea { background: var(--bg); }
+
+.tsteps { list-style: none; margin: 22px 0 0; padding: 0; display: grid; gap: 18px; }
+.tstep { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 8px; min-width: 0; }
+.thead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.thead h3 { font-size: 15.5px; flex: 1; min-width: 0; }
+.thead .num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12.5px; font-weight: 800; flex: none; }
+.tstep code { font-size: 12.5px; }
+.tstep p code, .field .hint code, .check code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.check code { padding: 1px 4px; }
+.copywrap { display: inline-flex; align-items: center; gap: 8px; }
+.btn.copy { min-height: 32px; padding: 4px 11px; }
+
 @media (max-width: 860px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
   .how { grid-template-columns: minmax(0, 1fr); }
+  .tryform, .plantgrid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
   .laxis, .lrow { grid-template-columns: minmax(0, 1fr); }
@@ -276,6 +318,9 @@ td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-spa
     <li><a href="../caught-and-fixed/report.html">caught-and-fixed</a>: Step 9 (edit tests/test_report.py) broke test_cancel_restores_stock. The agent saw it at step 13 and fixed it before the end. 4 steps and 112k tokens went into broken code first.</li>
     <li><a href="../humanize-ordinal-fix/report.html">humanize-ordinal-fix</a>: No test that passed at the start fails at the end. The agent worked for 70 steps and the run ended green.</li>
   </ul>
+
+  <h2>Try it on your own repo</h2>
+  <p>AgentBisect runs on your machine. The command builder here needs JavaScript. Without it, follow "Use it on your own project" in the README: <code>agentbisect record --repo ... --prompt-file ...</code>, then <code>agentbisect run --trace runs/&lt;run-folder&gt;</code> and <code>agentbisect report --trace runs/&lt;run-folder&gt;</code>.</p>
 
   <h2>Headline numbers</h2>
   <ul>
@@ -646,6 +691,279 @@ td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-spa
 
 </script>
 <script>
+/* The command builder behind the "Try it on your own repo" panel on the study page.
+   Pure functions only: they check the form and write shell text. Nothing here runs a command or
+   reads the page. The page loads this file after common.js, as AB.cmd. Node loads it with
+   require() for the tests.
+   Scheme strings are written "https:\/\/" (the same JavaScript string) so that the built page
+   holds no literal network address outside its data, which a test checks by search. */
+(function () {
+  "use strict";
+
+  var HTTPS = "https:\/\/";
+  var FILE = "file:\/\/";
+  var CLONE_URL = HTTPS + "github.com/akshatsi/Breaking-Point";
+  var CLONE_DIR = "Breaking-Point";
+  var PROMPT_DELIM = "AB_PROMPT_END";
+  var SABOTAGE_DELIM = "AB_SABOTAGE_END";
+  var MAX_PROMPT = 50000;
+  var MAX_STEP = 100000;
+
+  /* ------------------------------------------------------------------ quoting */
+
+  /* Wrap text in single quotes for a POSIX shell. A single quote inside becomes '\'' . Every
+     other character, newlines and $ and backticks included, is literal inside single quotes. */
+  function shq(s) {
+    return "'" + String(s).replace(/'/g, "'\\''") + "'";
+  }
+
+  /* A YAML double-quoted scalar. JSON strings are valid YAML double-quoted scalars, with one
+     catch: YAML readers treat a few raw characters as line breaks or reject them, so those are
+     written as \uXXXX escapes. */
+  function yamlq(s) {
+    return JSON.stringify(String(s)).replace(/[\u007f-\u009f\u2028\u2029\ufeff\ufffe\uffff]/g, function (c) {
+      return "\\u" + ("0000" + c.charCodeAt(0).toString(16)).slice(-4);
+    });
+  }
+
+  /* The heredoc end marker: `base`, plus "_X" until no text holds it. */
+  function delimiter(base, texts) {
+    var d = base;
+    for (;;) {
+      var clash = false;
+      for (var i = 0; i < texts.length; i++) if (texts[i].indexOf(d) !== -1) clash = true;
+      if (!clash) return d;
+      d += "_X";
+    }
+  }
+
+  /* Prompt text as the file will hold it: line ends are \n, trailing space and blank lines go. */
+  function canonicalBlock(s) {
+    return String(s).replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+  }
+
+  /* ------------------------------------------------------------------ checks */
+
+  var BAD_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+
+  /* Check the repository field. Returns {value} or {error}. The CLI takes only a URL that starts
+     with the https or file scheme, or a folder on this computer. */
+  function checkRepo(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return { error: "Enter a repository: an " + HTTPS + " or " + FILE + " address, or a folder on this computer." };
+    if (BAD_CONTROL.test(s) || /[\n\r]/.test(s)) return { error: "The repository cannot hold line breaks or control characters." };
+    if (/^[^\/\s@]+@[^\/\s:]+:/.test(s)) {
+      return { error: "SSH addresses such as git@github.com:you/project do not work. Use the " + HTTPS + " address of the repository." };
+    }
+    if (/^[A-Za-z][A-Za-z0-9+.-]*::/.test(s)) {
+      return { error: "Remote helpers such as ext:: are not allowed. Use an " + HTTPS + " or " + FILE + " address, or a folder path." };
+    }
+    var m = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//.exec(s);
+    if (m) {
+      var scheme = m[1] + ":\/\/";
+      if (scheme !== HTTPS && scheme !== FILE) {
+        return { error: scheme + " is not accepted. Use " + HTTPS + ", " + FILE + ", or a folder path." };
+      }
+      if (/\s/.test(s)) return { error: "An address cannot hold spaces. Write a space as %20." };
+      var rest = s.slice(scheme.length);
+      if (scheme === HTTPS) {
+        if (!/^[^\/?#@]+(\/|$)/.test(rest)) {
+          return { error: /^[^\/?#]*@/.test(rest) ? "Leave passwords and tokens out of the address." : "Add the host after " + HTTPS + ", for example github.com/you/project." };
+        }
+      } else if (!rest) {
+        return { error: "Add the folder path after " + FILE + "." };
+      }
+      return { value: s };
+    }
+    if (s.charAt(0) === "-") return { error: "A path that starts with - looks like an option. Write ./ before it." };
+    return { value: s };
+  }
+
+  function checkPrompt(raw) {
+    var s = canonicalBlock(raw == null ? "" : raw);
+    if (!s.trim()) return { error: "Write what you want the agent to do." };
+    if (BAD_CONTROL.test(s)) return { error: "The prompt holds a control character. Remove it." };
+    if (s.length > MAX_PROMPT) return { error: "The prompt is longer than " + MAX_PROMPT + " characters." };
+    return { value: s };
+  }
+
+  function checkModel(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return { error: "Enter the model name you will pick in Alan Code, for example flash." };
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,63}$/.test(s)) return { error: "Use letters, digits and . _ - : + / only." };
+    return { value: s };
+  }
+
+  function checkRef(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return { value: "" };
+    if (s.charAt(0) === "-") return { error: "A branch or tag cannot start with -." };
+    if (!/^[A-Za-z0-9._\/+@-]+$/.test(s) || s.indexOf("..") !== -1 || s.indexOf("@{") !== -1) {
+      return { error: "That is not a branch, tag or commit name. Use letters, digits and . _ - / + only." };
+    }
+    return { value: s };
+  }
+
+  function checkStep(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!/^\d+$/.test(s) || parseInt(s, 10) < 1) return { error: "Enter a whole number, 1 or more." };
+    var n = parseInt(s, 10);
+    if (n > MAX_STEP) return { error: "Enter a number up to " + MAX_STEP + "." };
+    return { value: n };
+  }
+
+  function checkFile(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return { error: "Enter the file path, relative to the repository, for example src/app/core.py." };
+    if (BAD_CONTROL.test(s) || /[\n\r\\]/.test(s)) return { error: "Use / in the path, with no line breaks or control characters." };
+    if (s.charAt(0) === "/" || /^[A-Za-z]:/.test(s)) return { error: "Write the path relative to the repository, not from the root of the disk." };
+    if (s.split("/").indexOf("..") !== -1) return { error: "The path cannot go up with .. ." };
+    return { value: s };
+  }
+
+  /* Text that must match the file exactly: nothing is trimmed. */
+  function checkExact(raw, label, needsText) {
+    var s = String(raw == null ? "" : raw);
+    if (needsText && !s) return { error: "Enter the " + label + "." };
+    if (BAD_CONTROL.test(s)) return { error: "The " + label + " holds a control character. Remove it." };
+    return { value: s };
+  }
+
+  function emptyForm() {
+    return { repo: "", prompt: "", model: "flash", ref: "", noSetup: false, plant: false, atStep: "8", file: "", find: "", replace: "" };
+  }
+
+  /* Check the whole form. Returns {errors: {field: message}, values: {...} or null}. `values`
+     is set only when there is no error. */
+  function validate(form) {
+    var f = form;
+    var errors = {};
+    var v = {};
+    function take(key, res) {
+      if (res.error) errors[key] = res.error;
+      else v[key] = res.value;
+    }
+    take("repo", checkRepo(f.repo));
+    take("prompt", checkPrompt(f.prompt));
+    take("model", checkModel(f.model));
+    take("ref", checkRef(f.ref));
+    v.noSetup = !!f.noSetup;
+    v.plant = !!f.plant;
+    if (f.plant) {
+      take("atStep", checkStep(f.atStep));
+      take("file", checkFile(f.file));
+      take("find", checkExact(f.find, "text to replace", true));
+      take("replace", checkExact(f.replace, "replacement text", false));
+      if (!errors.find && !errors.replace && v.find === v.replace) {
+        errors.replace = "The replacement is the same as the text it replaces, so nothing would change.";
+      }
+    }
+    return { errors: errors, values: Object.keys(errors).length ? null : v };
+  }
+
+  /* ------------------------------------------------------------------ commands */
+
+  function installCommand() {
+    return "git clone " + CLONE_URL + " && cd " + CLONE_DIR + " && uv sync";
+  }
+
+  /* The sabotage file text for checked values. */
+  function sabotageYaml(v) {
+    return [
+      "at_step: " + v.atStep,
+      "file: " + yamlq(v.file),
+      "find: " + yamlq(v.find),
+      "replace: " + yamlq(v.replace),
+    ].join("\n");
+  }
+
+  /* The record step for checked values: the prompt file, an optional sabotage file, then the
+     command. Pasted into bash or zsh in the project folder, it writes prompt.txt (and
+     sabotage.yaml) and starts `record`. */
+  function recordBlock(v) {
+    var lines = [];
+    var yaml = v.plant ? sabotageYaml(v) : null;
+    var d1 = delimiter(PROMPT_DELIM, [v.prompt]);
+    lines.push("cat > prompt.txt <<'" + d1 + "'", v.prompt, d1);
+    if (yaml !== null) {
+      var d2 = delimiter(SABOTAGE_DELIM, [yaml]);
+      lines.push("cat > sabotage.yaml <<'" + d2 + "'", yaml, d2);
+    }
+    var opts = ["uv run agentbisect record", "--repo " + shq(v.repo), "--prompt-file prompt.txt"];
+    if (v.ref) opts.push("--ref " + shq(v.ref));
+    if (v.noSetup) opts.push("--no-setup");
+    if (yaml !== null) opts.push("--sabotage sabotage.yaml");
+    opts.push("--model " + shq(v.model));
+    lines.push(opts.join(" \\\n    "));
+    return lines.join("\n");
+  }
+
+  function bisectBlock() {
+    return "uv run agentbisect run --trace runs/<run-folder>\nuv run agentbisect report --trace runs/<run-folder>";
+  }
+
+  /* ------------------------------------------------------------------ examples */
+
+  var HUMANIZE_REPO = HTTPS + "github.com/python-humanize/humanize";
+  /* Same text as tasks/demo/humanize_prompt.txt and tasks/demo/humanize_sabotage.yaml; a test
+     keeps them equal. */
+  var HUMANIZE_PROMPT = [
+    "Extend natural_list in src/humanize/lists.py with two optional keyword arguments:",
+    "",
+    "- conjunction (default \"and\"): the word before the last item, e.g. natural_list([\"a\", \"b\", \"c\"], conjunction=\"or\") returns \"a, b or c\".",
+    "- oxford_comma (default False): when True and there are three or more items, put a comma before the conjunction, e.g. \"a, b, and c\".",
+    "",
+    "Calls without the new arguments must behave exactly as today. Update the docstring examples and add tests. Make sure the whole test suite passes when you are done.",
+  ].join("\n");
+
+  function example(extra) {
+    var f = emptyForm();
+    f.repo = HUMANIZE_REPO;
+    f.prompt = HUMANIZE_PROMPT;
+    for (var k in extra) f[k] = extra[k];
+    return f;
+  }
+
+  var PRESETS = [
+    { id: "humanize", label: "humanize: add options to natural_list", form: example({}) },
+    {
+      id: "humanize-planted",
+      label: "humanize with a planted break (tests the bisector)",
+      form: example({
+        plant: true,
+        atStep: "8",
+        file: "src/humanize/filesize.py",
+        find: "    if abs_bytes < base:",
+        replace: "    if abs_bytes <= base:",
+      }),
+    },
+  ];
+
+  var api = {
+    HTTPS: HTTPS,
+    FILE: FILE,
+    shq: shq,
+    yamlq: yamlq,
+    delimiter: delimiter,
+    canonicalBlock: canonicalBlock,
+    checkRepo: checkRepo,
+    checkPrompt: checkPrompt,
+    checkModel: checkModel,
+    checkRef: checkRef,
+    emptyForm: emptyForm,
+    validate: validate,
+    installCommand: installCommand,
+    sabotageYaml: sabotageYaml,
+    recordBlock: recordBlock,
+    bisectBlock: bisectBlock,
+    PRESETS: PRESETS,
+  };
+  if (typeof window !== "undefined" && window.AB) window.AB.cmd = api;
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+})();
+
+</script>
+<script>
 /* The study page: landing header, demo run cards, headline numbers, lag chart, runs table. */
 (function () {
   "use strict";
@@ -704,6 +1022,205 @@ td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-spa
         })}
       </div>
     </div>`;
+  }
+
+  /* ---------------------------------------------------------------- try it on your repo */
+
+  var C = A.cmd;
+
+  /* Copy text with the clipboard API, or with a hidden textarea where that is missing or refused. */
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.setAttribute("aria-hidden", "true");
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function CopyIcon() {
+    return html`<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      <path d="M5.5 5.5h8v8h-8z" /><path d="M3 10.5V2.5h8" />
+    </svg>`;
+  }
+
+  function CopyButton(props) {
+    var st = useState("");
+    var timer = A.useRef(null);
+    function done(ok) {
+      st[1](ok ? "copied" : "failed");
+      clearTimeout(timer.current);
+      timer.current = setTimeout(function () { st[1](""); }, 2200);
+    }
+    function copy() {
+      var text = props.text;
+      var nav = typeof navigator !== "undefined" ? navigator : null;
+      if (nav && nav.clipboard && nav.clipboard.writeText) {
+        nav.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+      } else {
+        done(fallbackCopy(text));
+      }
+    }
+    var msg = st[0] === "copied" ? "Copied" : st[0] === "failed" ? "Copy failed. Select the text and copy it by hand." : "";
+    return html`<span class="copywrap">
+      <button type="button" class="btn copy" aria-label=${props.label} onClick=${copy}>
+        ${st[0] === "copied" ? html`<${A.Icon} name="check" size=${14} />` : html`<${CopyIcon} />`}${st[0] === "copied" ? "Copied" : props.text_ || "Copy"}
+      </button>
+      <span class="sr" role="status">${msg}</span>
+      ${st[0] === "failed" ? html`<span class="tiny muted" aria-hidden="true">Copy failed</span>` : null}
+    </span>`;
+  }
+
+  function Field(props) {
+    var id = props.id;
+    var describedBy = [props.hint ? id + "-hint" : null, props.error ? id + "-err" : null].filter(Boolean).join(" ") || null;
+    var control = props.control({ id: id, "aria-invalid": props.error ? "true" : null, "aria-describedby": describedBy, "aria-required": props.required ? "true" : null });
+    return html`<div class=${cx("field", props.wide && "wide")}>
+      <label for=${id}>${props.label}${props.required ? null : html` <span class="opt">(optional)</span>`}</label>
+      ${control}
+      ${props.hint ? html`<p class="hint" id=${id + "-hint"}>${props.hint}</p>` : null}
+      ${props.error ? html`<p class="ferr" id=${id + "-err"} role="alert">${props.error}</p>` : null}
+    </div>`;
+  }
+
+  function Step(props) {
+    return html`<li class="tstep">
+      <div class="thead">
+        <span class="num">${props.n}</span>
+        <h3>${props.title}</h3>
+        ${props.copy ? html`<${CopyButton} text=${props.copy} text_=${props.copyText} label=${props.copyLabel || "Copy the commands of step " + props.n} />` : null}
+      </div>
+      ${props.children}
+    </li>`;
+  }
+
+  /* The file name of a run report is split in the source below: a test searches the page for it to find links to run reports. */
+  function TryIt() {
+    var fS = useState(C.emptyForm());
+    var tS = useState({});
+    var xS = useState("");
+    var form = fS[0];
+    var touched = tS[0];
+    var result = useMemo(function () { return C.validate(form); }, [form]);
+    var errors = result.errors;
+    var values = result.values;
+
+    function set(key, value) {
+      var next = Object.assign({}, form);
+      next[key] = value;
+      fS[1](next);
+      xS[1]("");
+    }
+    function touch(key) {
+      if (!touched[key]) {
+        var next = Object.assign({}, touched);
+        next[key] = true;
+        tS[1](next);
+      }
+    }
+    function shown(key) {
+      var v = form[key];
+      return errors[key] && (touched[key] || (typeof v === "string" && v.trim() !== "")) ? errors[key] : null;
+    }
+    function text(key) {
+      return function (extra) {
+        return Object.assign({}, extra, {
+          value: form[key],
+          onInput: function (e) { set(key, e.target.value); },
+          onBlur: function () { touch(key); },
+        });
+      };
+    }
+    function pick(e) {
+      var id = e.target.value;
+      xS[1](id);
+      var preset = C.PRESETS.filter(function (p) { return p.id === id; })[0];
+      if (preset) {
+        fS[1](Object.assign(C.emptyForm(), preset.form));
+        tS[1]({});
+      }
+    }
+    function input(key, extra) {
+      return function (props) { return html`<input type="text" autocomplete="off" autocapitalize="off" spellcheck="false" ...${Object.assign({}, props, text(key)(), extra)} />`; };
+    }
+    function area(key, rows, mono) {
+      return function (props) { return html`<textarea rows=${rows} spellcheck=${mono ? "false" : "true"} class=${mono ? "mono" : null} ...${Object.assign({}, props, text(key)())}></textarea>`; };
+    }
+
+    var record = values ? C.recordBlock(values) : null;
+    var model = values ? values.model : form.model.trim() || "flash";
+
+    return html`<div class="section" id="try-it"><div class="card panel">
+      <h2 class="t">Try it on your own repo</h2>
+      <p class="lede">AgentBisect runs on your machine. Fill in your project and copy the commands.</p>
+      <div class="notice warn tryfirst" role="note">
+        <b>Security.</b> Installing a project's dependencies runs its build code. Use repositories you trust, or add <code>--no-setup</code>.
+      </div>
+      <p class="small muted trylimits">Limits: Python and pytest only. The tests must not need a database or a network. The project must install on Python 3.11. The commands are for bash or zsh.</p>
+
+      <form class="tryform" onSubmit=${function (e) { e.preventDefault(); }}>
+        <${Field} id="try-example" label="Examples" required=${true} hint="Fills the form below." control=${function (p) {
+          return html`<select ...${Object.assign({}, p, { "aria-required": null })} value=${xS[0]} onChange=${pick}>
+            <option value="">Choose an example</option>
+            ${C.PRESETS.map(function (x) { return html`<option value=${x.id} key=${x.id}>${x.label}</option>`; })}
+          </select>`;
+        }} />
+        <${Field} id="try-repo" wide=${true} required=${true} label="Repository" error=${shown("repo")}
+          hint=${"A git address (" + C.HTTPS + " or " + C.FILE + ") or a folder on this computer."} control=${input("repo", { placeholder: C.HTTPS + "github.com/you/project" })} />
+        <${Field} id="try-prompt" wide=${true} required=${true} label="Task prompt" error=${shown("prompt")}
+          hint="What to ask the agent." control=${area("prompt", 6, false)} />
+        <${Field} id="try-model" required=${true} label="Model" error=${shown("model")}
+          hint="The name you will pick in Alan Code. It becomes --model." control=${input("model")} />
+        <${Field} id="try-ref" label="Branch or tag" error=${shown("ref")} hint="Starts from this branch or tag. It becomes --ref." control=${input("ref", { placeholder: "main" })} />
+        <div class="field wide checks">
+          <label class="check"><input type="checkbox" id="try-nosetup" checked=${form.noSetup} onChange=${function (e) { set("noSetup", !!e.target.checked); }} />
+            <span>Skip installing dependencies (<code>--no-setup</code>)</span></label>
+          <label class="check"><input type="checkbox" id="try-plant" checked=${form.plant} onChange=${function (e) { set("plant", !!e.target.checked); }} />
+            <span>Plant a known break to test the bisector</span></label>
+        </div>
+        ${form.plant
+          ? html`<div class="field wide plant" role="group" aria-label="Planted break">
+              <p class="small muted">After the chosen step, AgentBisect edits one file to break it. Then it checks that the bisector names that step.</p>
+              <div class="plantgrid">
+                <${Field} id="try-step" required=${true} label="After which step" error=${shown("atStep")} control=${input("atStep", { inputmode: "numeric" })} />
+                <${Field} id="try-file" required=${true} label="File path" error=${shown("file")} hint="Relative to the repository." control=${input("file", { placeholder: "src/package/module.py" })} />
+                <${Field} id="try-find" wide=${true} required=${true} label="Text to replace" error=${shown("find")} hint="Exact text, spaces included. It must occur once in the file." control=${area("find", 2, true)} />
+                <${Field} id="try-replace" wide=${true} required=${false} label="Replacement text" error=${shown("replace")} hint="Empty deletes the text." control=${area("replace", 2, true)} />
+              </div>
+            </div>`
+          : null}
+      </form>
+
+      <ol class="tsteps">
+        <${Step} n=${1} title="Install AgentBisect once" copy=${C.installCommand()}>
+          <p class="small muted">You need git and uv.</p>
+          <${A.CodeBlock} text=${C.installCommand()} label="Install commands" />
+        <//>
+        <${Step} n=${2} title="Save the prompt and record the run" copy=${record}>
+          ${record
+            ? html`<p class="small muted">Run this in the <code>Breaking-Point</code> folder. It copies your project into a new folder under <code>runs/</code>${values.noSetup ? "." : " and installs its dependencies. That can take a minute."} Your own repository stays as it is.</p>
+                <${A.CodeBlock} text=${record} label="Record commands" />`
+            : html`<p class="small muted" role="status">Fill in the repository and the prompt, and this step shows the command. ${Object.keys(errors).length ? "Fields still to fix: " + Object.keys(errors).length + "." : ""}</p>`}
+        <//>
+        <${Step} n=${3} title="Let the agent work in Alan Code" copy=${values ? values.prompt : null} copyLabel="Copy the prompt" copyText="Copy prompt">
+          <p>Open the printed <code>workdir</code> folder in a <b>new</b> Alan Code conversation. Pick the <code>${model}</code> model, paste the prompt, and let the agent finish. Do not edit files yourself while it works.</p>
+        <//>
+        <${Step} n=${4} title="Find the step that broke it" copy=${C.bisectBlock()}>
+          <${A.CodeBlock} text=${C.bisectBlock()} label="Bisect and report commands" />
+          <p class="small muted">Replace <code>${"<run-folder>"}</code> with the folder name that <code>record</code> printed under <code>runs/</code>. <code>${"report"}.html</code> is one file. Open it or share it.</p>
+        <//>
+      </ol>
+    </div></div>`;
   }
 
   /* ---------------------------------------------------------------- numbers */
@@ -949,6 +1466,7 @@ td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-spa
       <${Landing} />
       <main class="wrap page">
         <${RunCards} />
+        <${TryIt} />
         <${Numbers} />
         <${LagPanel} />
         <${EpisodePanel} />

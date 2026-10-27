@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
+from typer.testing import CliRunner
 
+from agentbisect.cli import app as cli_app
 from agentbisect.models import (
     Analysis,
     BisectResult,
@@ -34,7 +39,7 @@ from agentbisect.report.study import (
     results_markdown,
 )
 from agentbisect.synthetic import make_synthetic_run
-from tests.test_report import DATA_RE, needs_node, run_page
+from tests.test_report import ASSETS, DATA_RE, NODE, needs_node, run_page
 
 EVIL = '<script>alert("x")</script>'
 
@@ -651,3 +656,445 @@ def test_writing_twice_leaves_bytes_and_mtime_alone(tmp_path: Path) -> None:
     render_study(s, tmp_path)
     render_results_draft(s, tmp_path)
     assert before == [(p.read_bytes(), p.stat().st_mtime_ns) for p in (html, draft)]
+
+
+# --------------------------------------------------------------------------- "Try it on your repo"
+
+BUILDER = ASSETS / "builder.js"
+BASH = shutil.which("bash")
+needs_bash = pytest.mark.skipif(BASH is None, reason="bash is not installed")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def builder(code: str, arg: Any = None) -> Any:
+    """Run ``code`` (a function body) against the panel's pure functions under node.
+
+    ``C`` is the exported API and ``A`` the JSON ``arg``. The return value comes back as JSON.
+    """
+    assert NODE
+    script = (
+        f"const C = require({json.dumps(str(BUILDER))});"
+        "const A = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+        f"process.stdout.write(JSON.stringify((function () {{ {code} }})()));"
+    )
+    done = subprocess.run(
+        [NODE, "-e", script],
+        input=json.dumps(arg),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def bash(script: str, cwd: Path) -> subprocess.CompletedProcess[bytes]:
+    assert BASH
+    return subprocess.run(
+        [BASH, "-c", script],
+        cwd=cwd,
+        capture_output=True,
+        timeout=30,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(cwd)},
+    )
+
+
+def bash_syntax_ok(script: str, cwd: Path) -> None:
+    assert BASH
+    done = subprocess.run(
+        [BASH, "-n"], input=script.encode(), cwd=cwd, capture_output=True, timeout=30
+    )
+    assert done.returncode == 0, done.stderr.decode()
+
+
+NASTY = [
+    "plain",
+    "it's",
+    "'; touch pwned; '",
+    "a b  c",
+    "$(touch pwned)",
+    "`touch pwned`",
+    "${HOME} $HOME !! ~",
+    "line one\nline two\n\nline four",
+    'double "quotes" and back\\slash \\n',
+    "tab\there",
+    "-n",
+    "*.py ?",
+    "café ☃ \U0001f600",
+    "",
+]
+
+
+@needs_node
+@needs_bash
+def test_shell_quoting_gives_back_every_value_exactly(tmp_path: Path) -> None:
+    words = builder("return A.map(C.shq);", NASTY)
+    script = "printf '%s\\0' " + " ".join(words)
+    bash_syntax_ok(script, tmp_path)
+    done = bash(script, tmp_path)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.decode().split("\0")[:-1] == NASTY
+    assert list(tmp_path.iterdir()) == []  # nothing in the values ran
+
+
+def make_form(**kw: Any) -> dict[str, Any]:
+    form = builder("return C.emptyForm();")
+    form.update(repo="https://example.com/team/project", prompt="Do the thing.")
+    form.update(kw)
+    return form
+
+
+def checked(form: dict[str, Any]) -> dict[str, Any]:
+    out = builder("return C.validate(A);", form)
+    assert out["errors"] == {}, out["errors"]
+    return out["values"]
+
+
+def record_block(form: dict[str, Any]) -> str:
+    return builder("return C.recordBlock(C.validate(A).values);", form)
+
+
+def run_record(form: dict[str, Any], tmp_path: Path) -> tuple[list[str], Path]:
+    """Run the record block in bash with ``uv`` replaced by a function that writes its argv."""
+    block = record_block(form)
+    bash_syntax_ok(block, tmp_path)
+    stub = "uv() { printf '%s\\0' \"$@\" > argv.bin; }\n"
+    done = bash(stub + block, tmp_path)
+    assert done.returncode == 0, done.stderr
+    argv = (tmp_path / "argv.bin").read_bytes().decode().split("\0")[:-1]
+    return argv, tmp_path
+
+
+@needs_node
+@needs_bash
+@pytest.mark.parametrize(
+    "repo", ["/tmp/my project/$(touch pwned)/it's `x`", "https://example.com/a'b.git"]
+)
+@pytest.mark.parametrize("prompt", NASTY[:-1])
+def test_record_block_reproduces_repo_and_prompt(tmp_path: Path, repo: str, prompt: str) -> None:
+    form = make_form(repo=repo, prompt=prompt, ref="feature/x+1", model="flash", noSetup=True)
+    argv, cwd = run_record(form, tmp_path)
+    assert argv == [
+        "run", "agentbisect", "record", "--repo", repo, "--prompt-file", "prompt.txt",
+        "--ref", "feature/x+1", "--no-setup", "--model", "flash",
+    ]  # fmt: skip
+    canonical = prompt.replace("\r\n", "\n").rstrip()
+    assert (cwd / "prompt.txt").read_text(encoding="utf-8") == canonical + "\n"
+    assert sorted(p.name for p in cwd.iterdir()) == ["argv.bin", "prompt.txt"]
+
+
+@needs_node
+@needs_bash
+def test_prompt_heredoc_marker_never_clashes_with_the_text(tmp_path: Path) -> None:
+    prompt = "first\nAB_PROMPT_END\nsecond AB_PROMPT_END_X\nAB_PROMPT_END_X_X\ntouch pwned"
+    block = record_block(make_form(prompt=prompt))
+    assert "<<'AB_PROMPT_END_X_X_X'" in block
+    argv, cwd = run_record(make_form(prompt=prompt), tmp_path)
+    assert (cwd / "prompt.txt").read_text() == prompt + "\n"
+    assert not (cwd / "pwned").exists()
+
+
+@needs_node
+def test_delimiter_adds_a_suffix_until_unique() -> None:
+    got = builder(
+        "return [C.delimiter('X', ['a']), C.delimiter('X', ['aXb']), C.delimiter('X', ['X', 'X_X'])];"
+    )
+    assert got == ["X", "X_X", "X_X_X"]
+
+
+SABOTAGE_CASES = [
+    {"file": "src/humanize/filesize.py", "find": "    if abs_bytes < base:", "replace": "    if abs_bytes <= base:"},
+    {"file": "a/b.py", "find": "x = 'one'\ny = \"two\"\n", "replace": ""},
+    {"file": "a.py", "find": "back\\slash \\n $(touch pwned) `x` # not: a comment", "replace": "tab\there"},
+    {"file": "m.py", "find": "line" + "\u2028" + "sep" + "\u2029" + " nel\x85 bom" + "\ufeff", "replace": "caf\u00e9 \U0001f600 \u2603"},
+    {"file": "k.py", "find": "AB_SABOTAGE_END", "replace": "true: yes, null ~ 12:30 - [a, {b}]"},
+    {"file": "z.py", "find": "  leading and trailing  ", "replace": "\n\n  x  \n"},
+]  # fmt: skip
+
+
+@needs_node
+@needs_bash
+@pytest.mark.parametrize("case", SABOTAGE_CASES)
+def test_sabotage_yaml_reads_back_to_the_same_values(tmp_path: Path, case: dict[str, str]) -> None:
+    form = make_form(plant=True, atStep="8", **case)
+    argv, cwd = run_record(form, tmp_path)
+    assert argv[-4:-1] == ["--sabotage", "sabotage.yaml", "--model"]
+    data = yaml.safe_load((cwd / "sabotage.yaml").read_text(encoding="utf-8"))
+    assert data == {"at_step": 8, **case}
+    # The CLI reads the file with the same model it validates in models.py.
+    from agentbisect.models import SabotageSpec
+
+    assert SabotageSpec.model_validate(data).find == case["find"]
+    assert not (cwd / "pwned").exists()
+
+
+@needs_node
+def test_checks_for_the_repository_field() -> None:
+    cases = {
+        "https://github.com/python-humanize/humanize": True,
+        "  https://github.com/a/b.git \n": True,
+        "file:///Users/me/project": True,
+        "/Users/me/my project": True,
+        "./project": True,
+        "~/code/project": True,
+        "git@github.com:you/project.git": False,
+        "ssh://git@github.com/you/project": False,
+        "http://github.com/a/b": False,
+        "git://github.com/a/b": False,
+        "ext::sh -c 'touch pwned'": False,
+        "ext::https://example.com/x": False,
+        "HTTPS://github.com/a/b": False,
+        "https://": False,
+        "https:///path": False,
+        "https://user:token@github.com/a/b": False,
+        "https://github.com/a b": False,
+        "file://": False,
+        "-oProxyCommand=x": False,
+        "": False,
+        "   ": False,
+        "a\nb": False,
+    }
+    got = builder(
+        "return A.map((s) => [s, !!C.checkRepo(s).value, C.checkRepo(s).error || null]);",
+        list(cases),
+    )
+    for text, ok, error in got:
+        assert ok is cases[text], (text, error)
+        assert (error is None) == ok
+    by_text = {t: e for t, _, e in got}
+    assert "SSH" in by_text["git@github.com:you/project.git"]
+    assert "ext::" in by_text["ext::sh -c 'touch pwned'"]
+    assert "ssh://" in by_text["ssh://git@github.com/you/project"]
+    # The value is trimmed.
+    assert (
+        builder("return C.checkRepo(A).value;", "  https://github.com/a/b \n")
+        == "https://github.com/a/b"
+    )
+
+
+@needs_node
+def test_checks_for_the_other_fields() -> None:
+    form = make_form(
+        plant=True, atStep="0", file="/etc/passwd", find="", replace="", model="a b", ref="-x"
+    )
+    errors = builder("return C.validate(A).errors;", form)
+    assert set(errors) == {"atStep", "file", "find", "model", "ref"}
+    assert builder("return C.validate(A).errors;", make_form(prompt="  \n ")).keys() == {"prompt"}
+    same = builder(
+        "return C.validate(A).errors;", make_form(plant=True, file="a.py", find="x", replace="x")
+    )
+    assert set(same) == {"replace"}
+    up = builder(
+        "return C.validate(A).errors;",
+        make_form(plant=True, file="a/../../b.py", find="x", replace="y"),
+    )
+    assert set(up) == {"file"}
+    # Planted-break fields are not checked while the box is off.
+    assert builder("return C.validate(A).errors;", make_form(file="/etc", find="")) == {}
+    assert checked(make_form(repo="  /tmp/p  ", ref=" v1.2 ", model=" flash "))["repo"] == "/tmp/p"
+
+
+@needs_node
+def test_every_option_the_panel_writes_exists_in_the_cli() -> None:
+    full = make_form(
+        ref="main", noSetup=True, plant=True, file="a.py", find="x", replace="y", prompt="Do it."
+    )
+    block = record_block(full)
+    record_cmd = block.split("uv run agentbisect record", 1)[1]
+    flags = set(re.findall(r"(?<![\w-])--[a-z][a-z-]*", record_cmd))
+    assert flags == {"--repo", "--prompt-file", "--ref", "--no-setup", "--sabotage", "--model"}
+    runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1"})
+    help_text = runner.invoke(cli_app, ["record", "--help"]).output
+    for flag in flags:
+        assert re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", help_text), flag
+    bisect = builder("return C.bisectBlock();")
+    for sub in ("run", "report"):
+        sub_help = runner.invoke(cli_app, [sub, "--help"]).output
+        used = set(
+            re.findall(
+                r"(?<![\w-])--[a-z][a-z-]*", re.search(rf"agentbisect {sub} .*", bisect).group(0)
+            )
+        )
+        assert used == {"--trace"}
+        assert "--trace" in sub_help
+
+
+@needs_node
+def test_examples_match_the_demo_task_files() -> None:
+    presets = {p["id"]: p["form"] for p in builder("return C.PRESETS;")}
+    demo = REPO_ROOT / "tasks" / "demo"
+    prompt = (demo / "humanize_prompt.txt").read_text(encoding="utf-8").rstrip("\n")
+    sabotage = yaml.safe_load((demo / "humanize_sabotage.yaml").read_text(encoding="utf-8"))
+    assert presets["humanize"]["prompt"] == prompt
+    assert presets["humanize"]["repo"] == "https://github.com/python-humanize/humanize"
+    planted = presets["humanize-planted"]
+    assert planted["prompt"] == prompt and planted["plant"] is True
+    assert (int(planted["atStep"]), planted["file"], planted["find"], planted["replace"]) == (
+        sabotage["at_step"], sabotage["file"], sabotage["find"], sabotage["replace"],
+    )  # fmt: skip
+    for form in presets.values():
+        checked(form)  # every example is a valid form
+
+
+@needs_node
+@needs_bash
+def test_install_and_bisect_blocks(tmp_path: Path) -> None:
+    install = builder("return C.installCommand();")
+    assert (
+        install
+        == "git clone https://github.com/akshatsi/Breaking-Point && cd Breaking-Point && uv sync"
+    )
+    bash_syntax_ok(install, tmp_path)
+    bisect = builder("return C.bisectBlock();")
+    assert bisect.splitlines() == [
+        "uv run agentbisect run --trace runs/<run-folder>",
+        "uv run agentbisect report --trace runs/<run-folder>",
+    ]
+
+
+def test_panel_script_is_plain_data_and_no_network() -> None:
+    text = BUILDER.read_text(encoding="utf-8")
+    assert "innerHTML" not in text and "fetch(" not in text and "XMLHttpRequest" not in text
+    assert text.isascii()
+
+
+# The page itself, drawn under node.
+
+PANEL_LOOK = """
+const id = (x) => H.all((n) => n.id === x)[0];
+const type = async (x, v) => { H.input(id(x), v); await H.tick(30); };
+const pre = (label) => { const e = H.byLabel(label)[0]; return e ? e.textContent : null; };
+const errs = () => H.byClass("ferr").map((e) => e.textContent);
+const pick = async (v) => { const s = id("try-example"); s.value = v; s.dispatchEvent({ type: "change", target: s }); await H.tick(30); };
+const tick = async (x, on) => { const e = id(x); e.checked = on; e.dispatchEvent({ type: "change", target: e }); await H.tick(30); };
+"""
+
+
+@needs_node
+def test_panel_sits_between_the_cards_and_the_numbers(page_file: Path) -> None:
+    out = run_page(page_file)
+    text = out["text"]
+    assert "Try it on your own repo" in text
+    assert "AgentBisect runs on your machine. Fill in your project and copy the commands." in text
+    assert text.index("Try it on your own repo") < text.index("Headline numbers")
+    assert (
+        "Installing a project's dependencies runs its build code. "
+        "Use repositories you trust, or add --no-setup."
+    ) in text
+    assert "Python and pytest only" in text and "Python 3.11" in text
+    assert "git clone https://github.com/akshatsi/Breaking-Point" in text
+
+
+@needs_node
+def test_panel_builds_the_commands_live(page_file: Path) -> None:
+    out = run_page(
+        page_file,
+        PANEL_LOOK
+        + """
+        const seen = { empty: pre("Record commands"), labels: H.byTag("label").map((l) => l.textContent.trim()) };
+        await type("try-repo", "git@github.com:you/p.git");
+        await type("try-prompt", "Fix it.\\nIt's broken.");
+        seen.badRepo = errs();
+        seen.badRecord = pre("Record commands");
+        await type("try-repo", "https://github.com/you/p");
+        seen.ok = errs();
+        seen.record = pre("Record commands");
+        await type("try-ref", "v2");
+        await tick("try-nosetup", true);
+        await type("try-model", "glm");
+        seen.opts = pre("Record commands");
+        await tick("try-plant", true);
+        seen.plantNeeds = pre("Record commands");
+        await type("try-file", "a/b.py");
+        await type("try-find", "x = 1");
+        await type("try-replace", "x = 2");
+        seen.planted = pre("Record commands");
+        await tick("try-plant", false);
+        seen.unplanted = pre("Record commands");
+        return seen;
+        """,
+    )
+    r = out["result"]
+    assert r["empty"] is None
+    assert {"Repository", "Task prompt", "Model"} <= {x.split(" (")[0] for x in r["labels"]}
+    assert any("SSH" in e for e in r["badRepo"]) and r["badRecord"] is None
+    assert r["ok"] == []
+    assert r["record"].startswith(
+        "cat > prompt.txt <<'AB_PROMPT_END'\nFix it.\nIt's broken.\nAB_PROMPT_END\n"
+    )
+    assert r["record"].endswith(
+        "--repo 'https://github.com/you/p' \\\n    --prompt-file prompt.txt \\\n    --model 'flash'"
+    )
+    assert "--ref 'v2' \\\n    --no-setup \\\n    --model 'glm'" in r["opts"]
+    assert r["plantNeeds"] is None  # file and text are still empty
+    assert "cat > sabotage.yaml <<'AB_SABOTAGE_END'\nat_step: 8\nfile: \"a/b.py\"" in r["planted"]
+    assert "--sabotage sabotage.yaml \\\n    --model 'glm'" in r["planted"]
+    assert "sabotage" not in r["unplanted"]
+
+
+@needs_node
+def test_examples_fill_the_form(page_file: Path) -> None:
+    out = run_page(
+        page_file,
+        PANEL_LOOK
+        + """
+        const seen = {};
+        await pick("humanize");
+        seen.plain = pre("Record commands");
+        await pick("humanize-planted");
+        seen.planted = pre("Record commands");
+        seen.step3 = H.byTag("li").map((l) => l.textContent).filter((t) => t.includes("Alan Code conversation"))[0];
+        return seen;
+        """,
+    )
+    r = out["result"]
+    assert "Extend natural_list in src/humanize/lists.py" in r["plain"]
+    assert "--repo 'https://github.com/python-humanize/humanize'" in r["plain"]
+    assert "sabotage" not in r["plain"]
+    assert 'find: "    if abs_bytes < base:"' in r["planted"]
+    assert 'replace: "    if abs_bytes <= base:"' in r["planted"]
+    assert "Pick the flash model" in r["step3"]
+
+
+@needs_node
+def test_copy_buttons_use_the_clipboard_and_fall_back(page_file: Path) -> None:
+    out = run_page(
+        page_file,
+        PANEL_LOOK
+        + """
+        await pick("humanize");
+        const copies = H.byClass("copy");
+        const seen = { n: copies.length, labels: copies.map((b) => b.getAttribute("aria-label")) };
+        const got = [];
+        navigator.clipboard = { writeText: (t) => { got.push(t); return Promise.resolve(); } };
+        copies.forEach((b) => H.click(b));
+        await H.tick(30);
+        seen.got = got;
+        seen.copied = H.byTag("button").filter((b) => b.textContent.includes("Copied")).length;
+        navigator.clipboard = null;
+        H.click(H.byClass("copy")[0]);
+        await H.tick(30);
+        seen.failed = H.text().includes("Copy failed");
+        return seen;
+        """,
+    )
+    r = out["result"]
+    assert r["n"] == 4
+    assert r["labels"][2] == "Copy the prompt"
+    assert r["got"][0].startswith("git clone ")
+    assert r["got"][1].startswith("cat > prompt.txt <<'AB_PROMPT_END'")
+    assert r["got"][2].startswith("Extend natural_list")
+    assert r["got"][3].startswith("uv run agentbisect run --trace runs/<run-folder>")
+    assert r["copied"] == 4
+    assert r["failed"] is True  # no clipboard and no execCommand: the page says so
+
+
+def test_panel_adds_no_script_to_the_run_report() -> None:
+    from agentbisect.report import page as page_mod
+
+    assert page_mod.scripts_for("run_app.js") == page_mod.scripts_for("run_app.js", ())
+    assert (
+        len(page_mod.scripts_for("study_app.js", ("builder.js",)))
+        == len(page_mod.scripts_for("study_app.js")) + 1
+    )

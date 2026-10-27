@@ -88,9 +88,51 @@ td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-spa
 .claims .yes svg { color: var(--green); } .claims .no svg { color: var(--red); }
 .claimbox { border-left: 5px solid var(--amber); }
 
+/* ---- try it on your own repo ---- */
+#try-it { scroll-margin-top: 70px; }
+.tryfirst { margin-bottom: 8px; }
+.tryfirst code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+.trylimits { margin-bottom: 16px; max-width: 60em; }
+.tryform { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; align-items: start; }
+.field { display: grid; gap: 5px; min-width: 0; align-content: start; }
+.field.wide { grid-column: 1 / -1; }
+.field label { font-size: 13.5px; font-weight: 650; }
+.field .opt { font-weight: 500; color: var(--muted); font-size: 12.5px; }
+.field input[type="text"], .field select, .field textarea {
+  font: inherit; font-size: 14px; width: 100%; min-height: 40px; padding: 8px 12px; border-radius: 9px;
+  border: 1px solid var(--line2); background: var(--bg2); color: var(--ink); -webkit-appearance: none; appearance: none;
+}
+.field select { -webkit-appearance: menulist; appearance: auto; }
+.field textarea { resize: vertical; line-height: 1.45; }
+.field textarea.mono, .field input[type="text"] { font-family: inherit; }
+.field textarea.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.field [aria-invalid="true"] { border-color: var(--red); }
+.field .hint { font-size: 12.5px; color: var(--muted); }
+.field .ferr { font-size: 13px; color: var(--red); font-weight: 600; }
+.checks { display: grid; gap: 10px; }
+.field label.check { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 28px; }
+.check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.plant { border: 1px dashed var(--amber); border-radius: 12px; padding: 14px; background: var(--amber-bg); gap: 12px; }
+.plantgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.plantgrid .field.wide { grid-column: 1 / -1; }
+.plant .field input[type="text"], .plant .field textarea { background: var(--bg); }
+
+.tsteps { list-style: none; margin: 22px 0 0; padding: 0; display: grid; gap: 18px; }
+.tstep { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 8px; min-width: 0; }
+.thead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.thead h3 { font-size: 15.5px; flex: 1; min-width: 0; }
+.thead .num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12.5px; font-weight: 800; flex: none; }
+.tstep code { font-size: 12.5px; }
+.tstep p code, .field .hint code, .check code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.check code { padding: 1px 4px; }
+.copywrap { display: inline-flex; align-items: center; gap: 8px; }
+.btn.copy { min-height: 32px; padding: 4px 11px; }
+
 @media (max-width: 860px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
   .how { grid-template-columns: minmax(0, 1fr); }
+  .tryform, .plantgrid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
   .laxis, .lrow { grid-template-columns: minmax(0, 1fr); }

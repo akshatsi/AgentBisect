@@ -61,9 +61,15 @@ def json_blob(data: Any) -> str:
     return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
-def scripts_for(app: str) -> list[str]:
-    """The inline scripts of a page, in order: libraries, shared helpers, the page's own app."""
-    return [*(vendor_js(n) for n in VENDOR_SCRIPTS), app_js("common.js"), app_js(app)]
+def scripts_for(app: str, extra: tuple[str, ...] = ()) -> list[str]:
+    """The inline scripts of a page, in order: libraries, shared helpers, any ``extra`` helper
+    files the page needs, then the page's own app."""
+    return [
+        *(vendor_js(n) for n in VENDOR_SCRIPTS),
+        app_js("common.js"),
+        *(app_js(n) for n in extra),
+        app_js(app),
+    ]
 
 
 def _env() -> Environment:
@@ -82,6 +88,7 @@ def render_page(
     data: dict[str, Any],
     app: str,
     styles: tuple[str, ...],
+    extra_scripts: tuple[str, ...] = (),
     **ctx: Any,
 ) -> str:
     """Render ``template`` with the shared page parts plus ``ctx`` (used by its ``<noscript>``).
@@ -95,7 +102,7 @@ def render_page(
         .render(
             title=title,
             css=Markup(css("common.css", *styles)),
-            scripts=[Markup(s) for s in scripts_for(app)],
+            scripts=[Markup(s) for s in scripts_for(app, extra_scripts)],
             data_json=Markup(json_blob(data)),
             data=data,
             **ctx,

@@ -58,6 +58,205 @@
     </div>`;
   }
 
+  /* ---------------------------------------------------------------- try it on your repo */
+
+  var C = A.cmd;
+
+  /* Copy text with the clipboard API, or with a hidden textarea where that is missing or refused. */
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.setAttribute("aria-hidden", "true");
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function CopyIcon() {
+    return html`<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      <path d="M5.5 5.5h8v8h-8z" /><path d="M3 10.5V2.5h8" />
+    </svg>`;
+  }
+
+  function CopyButton(props) {
+    var st = useState("");
+    var timer = A.useRef(null);
+    function done(ok) {
+      st[1](ok ? "copied" : "failed");
+      clearTimeout(timer.current);
+      timer.current = setTimeout(function () { st[1](""); }, 2200);
+    }
+    function copy() {
+      var text = props.text;
+      var nav = typeof navigator !== "undefined" ? navigator : null;
+      if (nav && nav.clipboard && nav.clipboard.writeText) {
+        nav.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+      } else {
+        done(fallbackCopy(text));
+      }
+    }
+    var msg = st[0] === "copied" ? "Copied" : st[0] === "failed" ? "Copy failed. Select the text and copy it by hand." : "";
+    return html`<span class="copywrap">
+      <button type="button" class="btn copy" aria-label=${props.label} onClick=${copy}>
+        ${st[0] === "copied" ? html`<${A.Icon} name="check" size=${14} />` : html`<${CopyIcon} />`}${st[0] === "copied" ? "Copied" : props.text_ || "Copy"}
+      </button>
+      <span class="sr" role="status">${msg}</span>
+      ${st[0] === "failed" ? html`<span class="tiny muted" aria-hidden="true">Copy failed</span>` : null}
+    </span>`;
+  }
+
+  function Field(props) {
+    var id = props.id;
+    var describedBy = [props.hint ? id + "-hint" : null, props.error ? id + "-err" : null].filter(Boolean).join(" ") || null;
+    var control = props.control({ id: id, "aria-invalid": props.error ? "true" : null, "aria-describedby": describedBy, "aria-required": props.required ? "true" : null });
+    return html`<div class=${cx("field", props.wide && "wide")}>
+      <label for=${id}>${props.label}${props.required ? null : html` <span class="opt">(optional)</span>`}</label>
+      ${control}
+      ${props.hint ? html`<p class="hint" id=${id + "-hint"}>${props.hint}</p>` : null}
+      ${props.error ? html`<p class="ferr" id=${id + "-err"} role="alert">${props.error}</p>` : null}
+    </div>`;
+  }
+
+  function Step(props) {
+    return html`<li class="tstep">
+      <div class="thead">
+        <span class="num">${props.n}</span>
+        <h3>${props.title}</h3>
+        ${props.copy ? html`<${CopyButton} text=${props.copy} text_=${props.copyText} label=${props.copyLabel || "Copy the commands of step " + props.n} />` : null}
+      </div>
+      ${props.children}
+    </li>`;
+  }
+
+  /* The file name of a run report is split in the source below: a test searches the page for it to find links to run reports. */
+  function TryIt() {
+    var fS = useState(C.emptyForm());
+    var tS = useState({});
+    var xS = useState("");
+    var form = fS[0];
+    var touched = tS[0];
+    var result = useMemo(function () { return C.validate(form); }, [form]);
+    var errors = result.errors;
+    var values = result.values;
+
+    function set(key, value) {
+      var next = Object.assign({}, form);
+      next[key] = value;
+      fS[1](next);
+      xS[1]("");
+    }
+    function touch(key) {
+      if (!touched[key]) {
+        var next = Object.assign({}, touched);
+        next[key] = true;
+        tS[1](next);
+      }
+    }
+    function shown(key) {
+      var v = form[key];
+      return errors[key] && (touched[key] || (typeof v === "string" && v.trim() !== "")) ? errors[key] : null;
+    }
+    function text(key) {
+      return function (extra) {
+        return Object.assign({}, extra, {
+          value: form[key],
+          onInput: function (e) { set(key, e.target.value); },
+          onBlur: function () { touch(key); },
+        });
+      };
+    }
+    function pick(e) {
+      var id = e.target.value;
+      xS[1](id);
+      var preset = C.PRESETS.filter(function (p) { return p.id === id; })[0];
+      if (preset) {
+        fS[1](Object.assign(C.emptyForm(), preset.form));
+        tS[1]({});
+      }
+    }
+    function input(key, extra) {
+      return function (props) { return html`<input type="text" autocomplete="off" autocapitalize="off" spellcheck="false" ...${Object.assign({}, props, text(key)(), extra)} />`; };
+    }
+    function area(key, rows, mono) {
+      return function (props) { return html`<textarea rows=${rows} spellcheck=${mono ? "false" : "true"} class=${mono ? "mono" : null} ...${Object.assign({}, props, text(key)())}></textarea>`; };
+    }
+
+    var record = values ? C.recordBlock(values) : null;
+    var model = values ? values.model : form.model.trim() || "flash";
+
+    return html`<div class="section" id="try-it"><div class="card panel">
+      <h2 class="t">Try it on your own repo</h2>
+      <p class="lede">AgentBisect runs on your machine. Fill in your project and copy the commands.</p>
+      <div class="notice warn tryfirst" role="note">
+        <b>Security.</b> Installing a project's dependencies runs its build code. Use repositories you trust, or add <code>--no-setup</code>.
+      </div>
+      <p class="small muted trylimits">Limits: Python and pytest only. The tests must not need a database or a network. The project must install on Python 3.11. The commands are for bash or zsh.</p>
+
+      <form class="tryform" onSubmit=${function (e) { e.preventDefault(); }}>
+        <${Field} id="try-example" label="Examples" required=${true} hint="Fills the form below." control=${function (p) {
+          return html`<select ...${Object.assign({}, p, { "aria-required": null })} value=${xS[0]} onChange=${pick}>
+            <option value="">Choose an example</option>
+            ${C.PRESETS.map(function (x) { return html`<option value=${x.id} key=${x.id}>${x.label}</option>`; })}
+          </select>`;
+        }} />
+        <${Field} id="try-repo" wide=${true} required=${true} label="Repository" error=${shown("repo")}
+          hint=${"A git address (" + C.HTTPS + " or " + C.FILE + ") or a folder on this computer."} control=${input("repo", { placeholder: C.HTTPS + "github.com/you/project" })} />
+        <${Field} id="try-prompt" wide=${true} required=${true} label="Task prompt" error=${shown("prompt")}
+          hint="What to ask the agent." control=${area("prompt", 6, false)} />
+        <${Field} id="try-model" required=${true} label="Model" error=${shown("model")}
+          hint="The name you will pick in Alan Code. It becomes --model." control=${input("model")} />
+        <${Field} id="try-ref" label="Branch or tag" error=${shown("ref")} hint="Starts from this branch or tag. It becomes --ref." control=${input("ref", { placeholder: "main" })} />
+        <div class="field wide checks">
+          <label class="check"><input type="checkbox" id="try-nosetup" checked=${form.noSetup} onChange=${function (e) { set("noSetup", !!e.target.checked); }} />
+            <span>Skip installing dependencies (<code>--no-setup</code>)</span></label>
+          <label class="check"><input type="checkbox" id="try-plant" checked=${form.plant} onChange=${function (e) { set("plant", !!e.target.checked); }} />
+            <span>Plant a known break to test the bisector</span></label>
+        </div>
+        ${form.plant
+          ? html`<div class="field wide plant" role="group" aria-label="Planted break">
+              <p class="small muted">After the chosen step, AgentBisect edits one file to break it. Then it checks that the bisector names that step.</p>
+              <div class="plantgrid">
+                <${Field} id="try-step" required=${true} label="After which step" error=${shown("atStep")} control=${input("atStep", { inputmode: "numeric" })} />
+                <${Field} id="try-file" required=${true} label="File path" error=${shown("file")} hint="Relative to the repository." control=${input("file", { placeholder: "src/package/module.py" })} />
+                <${Field} id="try-find" wide=${true} required=${true} label="Text to replace" error=${shown("find")} hint="Exact text, spaces included. It must occur once in the file." control=${area("find", 2, true)} />
+                <${Field} id="try-replace" wide=${true} required=${false} label="Replacement text" error=${shown("replace")} hint="Empty deletes the text." control=${area("replace", 2, true)} />
+              </div>
+            </div>`
+          : null}
+      </form>
+
+      <ol class="tsteps">
+        <${Step} n=${1} title="Install AgentBisect once" copy=${C.installCommand()}>
+          <p class="small muted">You need git and uv.</p>
+          <${A.CodeBlock} text=${C.installCommand()} label="Install commands" />
+        <//>
+        <${Step} n=${2} title="Save the prompt and record the run" copy=${record}>
+          ${record
+            ? html`<p class="small muted">Run this in the <code>Breaking-Point</code> folder. It copies your project into a new folder under <code>runs/</code>${values.noSetup ? "." : " and installs its dependencies. That can take a minute."} Your own repository stays as it is.</p>
+                <${A.CodeBlock} text=${record} label="Record commands" />`
+            : html`<p class="small muted" role="status">Fill in the repository and the prompt, and this step shows the command. ${Object.keys(errors).length ? "Fields still to fix: " + Object.keys(errors).length + "." : ""}</p>`}
+        <//>
+        <${Step} n=${3} title="Let the agent work in Alan Code" copy=${values ? values.prompt : null} copyLabel="Copy the prompt" copyText="Copy prompt">
+          <p>Open the printed <code>workdir</code> folder in a <b>new</b> Alan Code conversation. Pick the <code>${model}</code> model, paste the prompt, and let the agent finish. Do not edit files yourself while it works.</p>
+        <//>
+        <${Step} n=${4} title="Find the step that broke it" copy=${C.bisectBlock()}>
+          <${A.CodeBlock} text=${C.bisectBlock()} label="Bisect and report commands" />
+          <p class="small muted">Replace <code>${"<run-folder>"}</code> with the folder name that <code>record</code> printed under <code>runs/</code>. <code>${"report"}.html</code> is one file. Open it or share it.</p>
+        <//>
+      </ol>
+    </div></div>`;
+  }
+
   /* ---------------------------------------------------------------- numbers */
 
   function trimNum(x) {
@@ -301,6 +500,7 @@
       <${Landing} />
       <main class="wrap page">
         <${RunCards} />
+        <${TryIt} />
         <${Numbers} />
         <${LagPanel} />
         <${EpisodePanel} />

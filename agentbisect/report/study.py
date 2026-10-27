@@ -23,6 +23,7 @@ from agentbisect.report.text import check_label
 TEMPLATE_NAME = "study.html.j2"
 STYLES = ("study.css",)
 APP = "study_app.js"
+EXTRA_SCRIPTS = ("builder.js",)
 #: The landing page shows at most this many run cards.
 MAX_FEATURED = 3
 
@@ -681,6 +682,7 @@ def render_study(
         data=page_data(ctx),
         app=APP,
         styles=STYLES,
+        extra_scripts=EXTRA_SCRIPTS,
         **ctx,
     )
     out = out_dir / "study.html"
