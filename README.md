@@ -50,6 +50,10 @@ Each report is one HTML file that opens offline, with a replay of the search, a 
 
 *`runs/demo/study/study.html`: the landing page for the demo runs, then the numbers, the lag chart and the sortable table.*
 
+![The Try it on your own repo panel, filled with the humanize example. It shows the form and the four numbered steps with the commands to copy.](docs/img/try-it.png)
+
+*The command builder on the study page, filled with the `humanize` example: install, record, run the agent in Alan Code, then bisect and report.*
+
 ![The replay on a phone, 390 pixels wide.](docs/img/mobile.png)
 
 *The same replay at phone width.*
@@ -62,6 +66,8 @@ Point AgentBisect at a Python project that has pytest tests. It copies the proje
 uv run agentbisect record --repo https://github.com/<you>/<project> \
     --prompt "Add retry with backoff to the HTTP client"
 ```
+
+The study page (`runs/demo/study/study.html`) has a **Try it on your own repo** panel that writes these commands for you. You fill in the repository, the prompt and the model, and it prints each command, quoted for the shell, with a Copy button. It runs nothing and sends nothing.
 
 `--repo` takes a git URL or a local path. Use `--prompt-file notes.txt` for a long prompt, `--ref <branch>` to start from a branch or tag, and `--model flash` to name the model you will pick.
 
