@@ -106,7 +106,7 @@ It cannot start the agent. You open the run folder in a new Alan Code conversati
 The repo ships real recorded runs in `runs/demo/`. You need no API key and no agent. You need [uv](https://docs.astral.sh/uv/) and git.
 
 ```bash
-git clone https://github.com/akshatsi/Breaking-Point && cd Breaking-Point
+git clone https://github.com/akshatsi/AgentBisect && cd AgentBisect
 uv sync
 uv run agentbisect run    --trace runs/demo/caught-and-fixed          # prints the verdict above
 uv run agentbisect report --trace runs/demo/humanize-planted-break    # writes runs/demo/humanize-planted-break/report.html

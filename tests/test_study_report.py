@@ -943,7 +943,7 @@ def test_install_and_bisect_blocks(tmp_path: Path) -> None:
     install = builder("return C.installCommand();")
     assert (
         install
-        == "git clone https://github.com/akshatsi/Breaking-Point && cd Breaking-Point && uv sync"
+        == "git clone https://github.com/akshatsi/AgentBisect && cd AgentBisect && uv sync"
     )
     bash_syntax_ok(install, tmp_path)
     bisect = builder("return C.bisectBlock();")
@@ -983,7 +983,7 @@ def test_panel_sits_between_the_cards_and_the_numbers(page_file: Path) -> None:
         "Use repositories you trust, or add --no-setup."
     ) in text
     assert "Python and pytest only" in text and "Python 3.11" in text
-    assert "git clone https://github.com/akshatsi/Breaking-Point" in text
+    assert "git clone https://github.com/akshatsi/AgentBisect" in text
 
 
 @needs_node

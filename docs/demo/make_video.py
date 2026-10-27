@@ -78,7 +78,7 @@ SCENES = {
     ),
     "outro": (
         "AgentBisect. Open source, built on Alan AI. Find it at github dot com slash akshatsi "
-        "slash Breaking Point."
+        "slash AgentBisect."
     ),
 }  # fmt: skip
 
@@ -159,7 +159,7 @@ def slide_outro() -> str:
         '<p class="big fade" style="animation-delay:.6s">Find the step where your agent broke the code.</p>'
         '<p class="fade" style="animation-delay:1.4s"><span class="tag">open source</span>'
         '<span class="tag">built on Alan AI</span><span class="tag">DeepSeek V4.1 Flash in Alan Code</span></p>'
-        '<p class="mono big fade" style="animation-delay:2.4s;margin-top:40px">github.com/akshatsi/Breaking-Point</p>'
+        '<p class="mono big fade" style="animation-delay:2.4s;margin-top:40px">github.com/akshatsi/AgentBisect</p>'
         '<p class="fade" style="animation-delay:3.4s;margin-top:34px">'
         "Honest limits: 4 task runs, 1 model, Python and pytest only.</p></div>"
     )

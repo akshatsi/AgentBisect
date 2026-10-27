@@ -118,7 +118,7 @@
         <//>
         <${Step} n=${2} title="Save the prompt and record the run" copy=${record}>
           ${record
-            ? html`<p class="small muted">Run this in the <code>Breaking-Point</code> folder. It copies your project into a new folder under <code>runs/</code>${values.noSetup ? "." : " and installs its dependencies. That can take a minute."} Your own repository stays as it is.</p>
+            ? html`<p class="small muted">Run this in the <code>AgentBisect</code> folder. It copies your project into a new folder under <code>runs/</code>${values.noSetup ? "." : " and installs its dependencies. That can take a minute."} Your own repository stays as it is.</p>
                 <${A.CodeBlock} text=${record} label="Record commands" />`
             : html`<p class="small muted" role="status">Fill in the repository and the prompt, and this step shows the command. ${Object.keys(errors).length ? "Fields still to fix: " + Object.keys(errors).length + "." : ""}</p>`}
         <//>

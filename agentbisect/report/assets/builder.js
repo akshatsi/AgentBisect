@@ -9,8 +9,8 @@
 
   var HTTPS = "https:\/\/";
   var FILE = "file:\/\/";
-  var CLONE_URL = HTTPS + "github.com/akshatsi/Breaking-Point";
-  var CLONE_DIR = "Breaking-Point";
+  var CLONE_URL = HTTPS + "github.com/akshatsi/AgentBisect";
+  var CLONE_DIR = "AgentBisect";
   var PROMPT_DELIM = "AB_PROMPT_END";
   var SABOTAGE_DELIM = "AB_SABOTAGE_END";
   var MAX_PROMPT = 50000;
