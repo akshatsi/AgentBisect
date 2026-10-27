@@ -23,7 +23,7 @@ from agentbisect.report.text import check_label
 TEMPLATE_NAME = "study.html.j2"
 STYLES = ("study.css",)
 APP = "study_app.js"
-EXTRA_SCRIPTS = ("builder.js",)
+EXTRA_SCRIPTS = ("builder.js", "runform.js")
 #: The landing page shows at most this many run cards.
 MAX_FEATURED = 3
 
