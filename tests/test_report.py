@@ -122,7 +122,7 @@ class Element extends Node {
     this.namespaceURI = ns || "http://www.w3.org/1999/xhtml";
     this._attrs = new Map();
     this._listeners = new Map();
-    for (const h of ["onclick", "onkeydown", "oninput", "onchange", "onfocus", "onblur", "onmouseenter", "onmouseleave"]) this[h] = null;
+    for (const h of ["onclick", "onkeydown", "oninput", "onchange", "onfocus", "onblur", "onmouseenter", "onmouseleave", "onsubmit", "onscroll"]) this[h] = null;
     const store = {};
     this.style = new Proxy(store, {
       get: (t, k) => (k === "setProperty" ? (n, v) => { t[n] = v; } : k === "removeProperty" ? (n) => { delete t[n]; } : t[k]),

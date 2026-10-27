@@ -1,0 +1,49 @@
+/* ---- local app (agentbisect serve); builds on study.css ---- */
+.intro { padding: 30px 0 4px; }
+.intro h1 { font-size: clamp(30px, 6vw, 44px); letter-spacing: -.03em; font-weight: 800; }
+.intro .pitch { margin-top: 10px; font-size: clamp(17px, 2.4vw, 21px); }
+.intro .pitch2 { margin-top: 6px; }
+.topbar .chip b { color: var(--accent); }
+.btn.small { min-height: 30px; padding: 3px 10px; font-size: 13px; }
+.pill.idle { color: var(--muted); background: var(--panel2); }
+.submitrow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.submitrow .ferr { margin: 0; }
+
+.jobbox { margin-top: 16px; display: grid; gap: 8px; }
+.jobhead { display: flex; align-items: center; gap: 10px; }
+.joblog { max-height: 16em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jobbox .notice { margin: 0; }
+
+.nextcard .lede b { color: var(--ink); overflow-wrap: anywhere; }
+.pathbox { overflow-wrap: anywhere; user-select: all; }
+.analyzerow { margin-top: 20px; display: grid; gap: 8px; justify-items: start; }
+.btn.big { min-height: 52px; padding: 12px 22px; font-size: 16px; border-radius: 12px; max-width: 100%; white-space: normal; text-align: center; }
+.resultrow { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.resultrow .vchip { white-space: normal; line-height: 1.4; padding: 3px 10px; }
+a.btn { text-decoration: none; }
+a.btn.primary { color: var(--accent-ink); }
+
+.runshead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.runshead .grow { flex: 1; }
+.runshead h2.t { margin: 0; }
+.runtable td.num { font-variant-numeric: tabular-nums; }
+.runtable td .vchip { white-space: normal; max-width: 34ch; display: inline-block; line-height: 1.35; padding: 2px 10px; }
+.runtable tbody tr { cursor: pointer; }
+.runtable tbody tr.sel { background: var(--accent-bg); }
+.runtable .srccell { overflow-wrap: anywhere; max-width: 28ch; }
+.runtable .acts { white-space: nowrap; }
+.runtable .acts .btn + .btn { margin-left: 6px; }
+.linkbtn { background: none; border: 0; padding: 0; cursor: pointer; font-weight: 650; text-align: left; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.linkbtn:hover { color: var(--accent); }
+
+@media (max-width: 640px) {
+  .runtable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .runtable, .runtable tbody, .runtable tr, .runtable td { display: block; width: 100%; }
+  .runtable tr { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  .runtable td { border: 0; padding: 3px 4px; display: flex; gap: 10px; align-items: baseline; }
+  .runtable td::before { content: attr(data-label); flex: 0 0 7.5em; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+  .runtable td.runcell { display: block; }
+  .runtable td.runcell::before { display: none; }
+  .runtable .acts { flex-wrap: wrap; white-space: normal; }
+  .btn.big { width: 100%; }
+}
