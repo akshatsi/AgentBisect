@@ -1,4 +1,4 @@
-"""Command-line entry point. Four commands: record, run, report, study."""
+"""Command-line entry point. Five commands: record, run, report, study, serve."""
 
 from __future__ import annotations
 
@@ -765,6 +765,30 @@ def study(
         f"Draft written to {escape(str(draft_path))}. The audited results are in docs/RESULTS.md.",
         soft_wrap=True,
     )
+
+
+# --------------------------------------------------------------------------- serve
+
+
+@app.command()
+def serve(
+    runs: Path = typer.Option(Path("runs"), "--runs", help="Directory that holds the runs."),
+    port: int = typer.Option(8765, "--port", help="Port on 127.0.0.1. 0 picks a free port."),
+    no_open: bool = typer.Option(False, "--no-open", help="Do not open the browser."),
+) -> None:
+    """Run the local web app: clone a repo, record, bisect and read the report in your browser.
+
+    Listens on 127.0.0.1 only. The printed link holds a one-time token; keep it private.
+    """
+    from agentbisect.serve import serve as run_server
+
+    console = _console()
+    if not 0 <= port <= 65535:
+        raise _fail(console, "--port must be between 0 and 65535.")
+    try:
+        run_server(runs, port, open_browser=not no_open)
+    except OSError as e:
+        raise _fail(console, f"Cannot start the server: {e}", 1) from e
 
 
 if __name__ == "__main__":
