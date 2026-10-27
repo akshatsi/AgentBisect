@@ -36,13 +36,13 @@ Our research question: how many steps pass between the step that broke the code 
 
 ## Demo video
 
-A 110-second walkthrough, recorded from the real pages: [docs/demo/agentbisect-demo.mp4](docs/demo/agentbisect-demo.mp4). A real browser is driven with a visible cursor, real clicks and typing, and the actual bisect replay playing. The terminal text is the real output of `agentbisect run`. The voice is Kokoro, a small text-to-speech model that runs on your machine.
+A two-minute walkthrough, recorded from the real pages: [docs/demo/agentbisect-demo.mp4](docs/demo/agentbisect-demo.mp4). A real browser is driven with a visible cursor, real clicks and typing, and the actual bisect replay playing. The terminal text is the real output of `agentbisect run`. The voice is Kokoro, a small text-to-speech model that runs on your machine.
 
 Rebuild it (needs Google Chrome and ffmpeg; the first run downloads the voice model, about 350 MB):
 
 ```bash
 uv run --no-project --python 3.12 --with playwright --with kokoro-onnx --with soundfile --with numpy \
-    python docs/demo/make_video.py --voice af_heart --speed 1.18
+    python docs/demo/make_video.py --voice am_michael --speed 1.18
 ```
 
 ## Screenshots

@@ -12,7 +12,7 @@ project's dependencies stay as they are:
     uv run --no-project --python 3.12 --with playwright --with kokoro-onnx --with soundfile --with numpy \\
         python docs/demo/make_video.py
 
-    --voice af_heart   other voices: am_michael, am_adam, bf_emma, af_nicole, ...
+    --voice am_michael   other voices: af_heart, am_adam, bf_emma, af_nicole, ...
     --speed 1.12       speaking speed (1.0 is the model's default)
     --keep             keep the work folder (frames, audio, raw recordings)
 
@@ -425,7 +425,7 @@ def to_clip(raw: Path | None, still: Path | None, offset: float, total: float, w
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true")
-    ap.add_argument("--voice", default="af_heart")
+    ap.add_argument("--voice", default="am_michael")
     ap.add_argument("--speed", type=float, default=1.18)
     ap.add_argument("--only", default="", help="comma-separated scene names, for testing")
     ap.add_argument("--out", default=str(ROOT / "docs/demo/agentbisect-demo.mp4"))
