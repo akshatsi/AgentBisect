@@ -84,7 +84,9 @@ The study page (`runs/demo/study/study.html`) has a **Try it on your own repo** 
 
 `uv run agentbisect serve` opens a page in your browser that does the setup and the bisect for you. Fill in a repository, a prompt and a model, and the page clones the project, installs it and records step 0. It then shows the run folder and the prompt, each with a Copy button. When the agent has finished, press **The agent has finished: find the step**. The page bisects the run and links to the report. A table lists every run, and links to the study page.
 
-![The local app after a setup: the new-run form, the next-step card with the folder and prompt to copy, and the list of runs.](docs/img/serve.png)
+![The local app, started on the demo runs: the new-run form and the list of runs with their verdicts.](docs/img/serve.png)
+
+After you press **Set up the run**, a next-step card shows the run folder and the prompt, each with a Copy button.
 
 It cannot start the agent. You open the run folder in a new Alan Code conversation, paste the prompt and let the agent work. The app runs on `127.0.0.1` only, takes an access token from the link it prints, and sends nothing off your machine except `git clone` and package installs. The page is one offline file. Cloning and installing run the project's build code, so use repositories you trust.
 
