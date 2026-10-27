@@ -34,6 +34,10 @@ The verdict comes from running tests. No language model decides pass or fail. A 
 
 Our research question: how many steps pass between the step that broke the code and the first step where the agent could see the failure? We call that the **detection lag**. The finding below measures it across open models.
 
+## Demo video
+
+A 90-second walkthrough, built from the real demo runs: [docs/demo/agentbisect-demo.mp4](docs/demo/agentbisect-demo.mp4). Rebuild it with `uv run python docs/demo/make_video.py` (needs macOS, Google Chrome and ffmpeg). The pages and the terminal text come from this repo; the voice is macOS `say`.
+
 ## Screenshots
 
 Each report is one HTML file that opens offline, with a replay of the search, a step-by-step inspector and a light and a dark theme. Press `Space` on a report to play the replay.
